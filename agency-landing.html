@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Studio — Creative Agency</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --text: #eae7e2;
+    --muted: #5a5a5e;
+    --accent: #c8a97e;
+    --border: #1e1e22;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ─── Hero ─── */
+  .hero {
+    min-height: 100dvh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; padding: 40px 24px;
+  }
+  .hero-label {
+    font-size: 12px; font-weight: 400; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(32px, 6vw, 64px); font-weight: 300;
+    line-height: 1.3; max-width: 760px; letter-spacing: -0.01em;
+  }
+  .hero h1 strong { font-weight: 600; color: var(--accent); }
+  .scroll-hint {
+    margin-top: 48px; font-size: 13px; color: var(--muted);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+  /* ─── Text Mask Reveal ─── */
+  .mask-section { position: relative; min-height: 300vh; }
+  .mask-sticky {
+    position: sticky; top: 0; min-height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .mask-video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; object-fit: cover; opacity: 0.7;
+  }
+  .mask-overlay {
+    position: absolute; inset: 0; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mask-text {
+    font-size: clamp(60px, 15vw, 220px); font-weight: 800;
+    letter-spacing: -0.04em; line-height: 0.9;
+    text-align: center; text-transform: uppercase;
+    background: var(--bg); color: transparent;
+    -webkit-text-stroke: 2px rgba(234, 231, 226, 0.15);
+    position: relative; z-index: 2;
+  }
+  .mask-reveal {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3; clip-path: inset(100% 0 0 0);
+  }
+  .mask-reveal .mask-text-filled {
+    font-size: clamp(60px, 15vw, 220px); font-weight: 800;
+    letter-spacing: -0.04em; line-height: 0.9;
+    text-align: center; text-transform: uppercase;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23c8a97e'/%3E%3Cstop offset='50%25' stop-color='%23e8d5b5'/%3E%3Cstop offset='100%25' stop-color='%23a07850'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='400' height='400'/%3E%3C/svg%3E");
+    background-size: cover; background-position: center;
+  }
+  .mask-subtext {
+    position: absolute; bottom: 15%; left: 50%; transform: translateX(-50%);
+    text-align: center; opacity: 0; z-index: 4; padding: 0 24px;
+  }
+  .mask-subtext p { font-size: clamp(14px, 1.8vw, 20px); color: var(--muted); max-width: 45ch; line-height: 1.6; }
+  .mask-subtext a { display: inline-block; margin-top: 16px; color: var(--accent); text-decoration: none; font-size: 15px; }
+  .mask-subtext a:hover { text-decoration: underline; }
+  .mask-subtext a::after { content: ' \203A'; }
+  @keyframes shiftBg {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* ─── Work / Hover Image Trail ─── */
+  .trail-section {
+    position: relative; min-height: 80vh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; cursor: none;
+  }
+  .trail-section h2 {
+    font-size: clamp(48px, 10vw, 140px); font-weight: 700;
+    letter-spacing: -0.04em; text-align: center;
+    position: relative; z-index: 2; pointer-events: none; line-height: 0.95;
+  }
+  .trail-img {
+    position: fixed; width: 160px; height: 200px; border-radius: 10px;
+    pointer-events: none; z-index: 1; opacity: 0;
+    will-change: transform, opacity; object-fit: cover;
+  }
+  .trail-section-2 {
+    position: relative; min-height: 60vh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; cursor: none; border-top: 1px solid var(--border);
+  }
+  .trail-section-2 .trail-link {
+    font-size: clamp(28px, 5vw, 56px); font-weight: 600;
+    letter-spacing: -0.02em; color: var(--text); text-decoration: none;
+    padding: 20px 0; display: block; position: relative; z-index: 2;
+    transition: color 0.2s;
+  }
+  .trail-section-2 .trail-link:hover { color: var(--accent); }
+  .trail-list { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+  /* ─── Marquee ─── */
+  .marquee-section { padding: 60px 0; overflow: hidden; }
+  .marquee-row { display: flex; white-space: nowrap; will-change: transform; padding: 12px 0; }
+  .marquee-row + .marquee-row { margin-top: 4px; }
+  .marquee-item { display: inline-flex; align-items: center; padding: 0 32px; flex-shrink: 0; }
+
+  .marquee-giant .marquee-item {
+    font-size: clamp(48px, 10vw, 120px); font-weight: 800;
+    letter-spacing: -0.04em; line-height: 1; color: var(--text); padding: 0 40px;
+  }
+  .marquee-giant .marquee-item .dot {
+    display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--muted); margin: 0 32px; opacity: 0.3;
+  }
+  .marquee-outline .marquee-item {
+    font-size: clamp(48px, 10vw, 120px); font-weight: 800;
+    letter-spacing: -0.04em; line-height: 1; color: transparent;
+    -webkit-text-stroke: 2px var(--text); padding: 0 40px;
+  }
+  .marquee-outline .marquee-item .dot {
+    display: inline-block; width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--text); margin: 0 32px;
+  }
+  .marquee-tags .marquee-item {
+    font-size: 15px; font-weight: 500; background: var(--text); color: var(--bg);
+    padding: 10px 24px; border-radius: 100px; margin: 0 8px;
+  }
+  .marquee-tags-outline .marquee-item {
+    font-size: 15px; font-weight: 500; background: transparent; color: var(--text);
+    border: 1px solid var(--border); padding: 10px 24px; border-radius: 100px; margin: 0 8px;
+  }
+  .marquee-invert { background: var(--text); padding: 20px 0; margin: 40px 0; }
+  .marquee-invert .marquee-item {
+    font-size: clamp(24px, 5vw, 48px); font-weight: 700;
+    letter-spacing: -0.02em; color: var(--bg); padding: 0 32px;
+  }
+  .marquee-invert .marquee-item .sep {
+    display: inline-block; width: 8px; height: 8px;
+    background: rgba(10, 10, 11, 0.3); border-radius: 2px;
+    margin: 0 24px; transform: rotate(45deg);
+  }
+
+  /* ─── CTA ─── */
+  .cta { padding: 160px 24px; text-align: center; max-width: 680px; margin: 0 auto; border-top: 1px solid var(--border); }
+  .cta .tag {
+    display: inline-block; font-size: 11px; font-weight: 400;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+    border: 1px solid rgba(200, 169, 126, 0.2); padding: 4px 12px;
+    border-radius: 100px; margin-bottom: 20px;
+  }
+  .cta h2 { font-size: clamp(28px, 5vw, 56px); font-weight: 600; letter-spacing: -0.02em; margin-bottom: 20px; }
+  .cta p { font-size: 17px; color: var(--muted); line-height: 1.6; margin-bottom: 32px; }
+  .cta-button {
+    display: inline-block; background: var(--accent); color: var(--bg);
+    font-weight: 600; padding: 16px 36px; border-radius: 100px;
+    text-decoration: none; font-size: 15px;
+    transition: transform 0.2s, opacity 0.2s;
+  }
+  .cta-button:hover { transform: translateY(-2px); opacity: 0.9; }
+  .fade-up { opacity: 0; transform: translateY(30px); }
+
+  /* ─── Footer ─── */
+  footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="hero-label">Creative Studio — Branding · Web · Motion</div>
+  <h1>We build <strong>bold digital experiences</strong> for brands that refuse to blend in</h1>
+  <div class="scroll-hint">Scroll down</div>
+</section>
+
+<section class="mask-section">
+  <div class="mask-sticky">
+    <div class="mask-video" style="background: linear-gradient(135deg, #1a1208 0%, #2a1f12 30%, #0d0b08 60%, #1a1510 100%); background-size: 400% 400%; animation: shiftBg 8s ease infinite;"></div>
+    <div class="mask-overlay">
+      <div class="mask-text">BUILT<br>DIFFERENT</div>
+    </div>
+    <div class="mask-reveal">
+      <div class="mask-text-filled">BUILT<br>DIFFERENT</div>
+    </div>
+    <div class="mask-subtext">
+      <p>Branding, websites, and motion for companies that move fast and want to be remembered.</p>
+      <a href="#work">See our work</a>
+    </div>
+  </div>
+</section>
+
+<section class="trail-section" id="work" aria-label="Selected work">
+  <h2>SELECTED<br>WORK</h2>
+</section>
+<section class="trail-section-2" aria-label="Capabilities">
+  <div class="trail-list">
+    <a href="#" class="trail-link">Branding</a>
+    <a href="#" class="trail-link">Web Design</a>
+    <a href="#" class="trail-link">Motion</a>
+    <a href="#" class="trail-link">Photography</a>
+  </div>
+</section>
+
+<section class="marquee-section" aria-label="What we do">
+  <div class="marquee-row marquee-giant" data-speed="1" data-direction="left">
+    <div class="marquee-content">
+      <span class="marquee-item">DESIGN<span class="dot"></span></span>
+      <span class="marquee-item">BUILD<span class="dot"></span></span>
+      <span class="marquee-item">SHIP<span class="dot"></span></span>
+      <span class="marquee-item">SCALE<span class="dot"></span></span>
+    </div>
+  </div>
+  <div class="marquee-row marquee-outline" data-speed="0.7" data-direction="right">
+    <div class="marquee-content">
+      <span class="marquee-item">DESIGN<span class="dot"></span></span>
+      <span class="marquee-item">BUILD<span class="dot"></span></span>
+      <span class="marquee-item">SHIP<span class="dot"></span></span>
+      <span class="marquee-item">SCALE<span class="dot"></span></span>
+    </div>
+  </div>
+</section>
+
+<section class="marquee-section" aria-label="Skills and tools">
+  <div class="marquee-row marquee-tags" data-speed="0.5" data-direction="left">
+    <div class="marquee-content">
+      <span class="marquee-item">Branding</span>
+      <span class="marquee-item">Art Direction</span>
+      <span class="marquee-item">Web Design</span>
+      <span class="marquee-item">Development</span>
+      <span class="marquee-item">Motion</span>
+      <span class="marquee-item">3D</span>
+      <span class="marquee-item">Strategy</span>
+      <span class="marquee-item">Campaigns</span>
+    </div>
+  </div>
+  <div class="marquee-row marquee-tags-outline" data-speed="0.4" data-direction="right">
+    <div class="marquee-content">
+      <span class="marquee-item">Figma</span>
+      <span class="marquee-item">Webflow</span>
+      <span class="marquee-item">Three.js</span>
+      <span class="marquee-item">After Effects</span>
+      <span class="marquee-item">GSAP</span>
+      <span class="marquee-item">React</span>
+      <span class="marquee-item">Framer</span>
+      <span class="marquee-item">Cinema 4D</span>
+    </div>
+  </div>
+</section>
+
+<div class="marquee-invert">
+  <div class="marquee-row" data-speed="0.8" data-direction="left">
+    <div class="marquee-content">
+      <span class="marquee-item">WEBSITES<span class="sep"></span></span>
+      <span class="marquee-item">APPS<span class="sep"></span></span>
+      <span class="marquee-item">BRAND IDENTITY<span class="sep"></span></span>
+      <span class="marquee-item">CAMPAIGNS<span class="sep"></span></span>
+      <span class="marquee-item">MOTION<span class="sep"></span></span>
+    </div>
+  </div>
+</div>
+
+<section class="cta">
+  <div class="fade-up">
+    <div class="tag">Got a project?</div>
+    <h2>Let's build something different.</h2>
+    <p>We partner with a handful of brands at a time. If you're ready to stand out, get in touch.</p>
+    <a href="#" class="cta-button">Start a project</a>
+  </div>
+</section>
+
+<footer>Studio &copy; 2026 — Branding, Web &amp; Motion</footer>
+
+<script>
+(function() {
+  gsap.registerPlugin(ScrollTrigger);
+
+  /* === Text mask reveal === */
+  var maskSection = document.querySelector('.mask-section');
+  gsap.to('.mask-reveal', {
+    clipPath: 'inset(0% 0 0 0)',
+    ease: 'none',
+    scrollTrigger: { trigger: maskSection, start: 'top top', end: '60% bottom', scrub: 0.3 }
+  });
+  gsap.to('.mask-subtext', {
+    opacity: 1, y: 0,
+    scrollTrigger: { trigger: maskSection, start: '55% top', end: '70% top', scrub: true }
+  });
+  gsap.utils.toArray('.fade-up').forEach(function(el) {
+    gsap.to(el, {
+      opacity: 1, y: 0, duration: 0.8, ease: 'power2.out',
+      scrollTrigger: { trigger: el, start: 'top 85%' }
+    });
+  });
+
+  /* === Hover image trail === */
+  var trailColors = ['#c8a97e','#a8927e','#8e7a64','#d4b896','#b89968','#9c8268','#e0c9a6','#7a6650'];
+  var pool = [], poolSize = 20, lastX = 0, lastY = 0, threshold = 60;
+  for (var i = 0; i < poolSize; i++) {
+    var el = document.createElement('div');
+    el.className = 'trail-img';
+    el.style.background = trailColors[i % trailColors.length];
+    document.body.appendChild(el);
+    pool.push(el);
+  }
+  var idx = 0;
+  function spawnTrail(x, y) {
+    var item = pool[idx % poolSize];
+    idx++;
+    item.style.left = (x - 80) + 'px';
+    item.style.top = (y - 100) + 'px';
+    item.style.opacity = '0.85';
+    item.style.transform = 'scale(0.8) rotate(' + (Math.random() * 20 - 10) + 'deg)';
+    item.style.transition = 'none';
+    item.offsetHeight;
+    item.style.transition = 'opacity 0.8s ease 0.3s, transform 0.8s ease';
+    item.style.opacity = '0';
+    item.style.transform = 'scale(0.6) rotate(' + (Math.random() * 30 - 15) + 'deg)';
+  }
+  function onTrailMove(e) {
+    var dx = e.clientX - lastX, dy = e.clientY - lastY;
+    if (Math.sqrt(dx * dx + dy * dy) > threshold) {
+      lastX = e.clientX; lastY = e.clientY;
+      spawnTrail(e.clientX, e.clientY);
+    }
+  }
+  document.getElementById('work').addEventListener('mousemove', onTrailMove);
+  document.querySelector('.trail-section-2').addEventListener('mousemove', onTrailMove);
+
+  /* === Kinetic marquee === */
+  document.querySelectorAll('.marquee-row').forEach(function(row) {
+    var content = row.querySelector('.marquee-content');
+    row.appendChild(content.cloneNode(true));
+  });
+  var scrollVelocity = 0;
+  ScrollTrigger.create({
+    onUpdate: function(self) { scrollVelocity = Math.abs(self.getVelocity()); }
+  });
+  document.querySelectorAll('.marquee-row').forEach(function(row) {
+    var content = row.querySelector('.marquee-content');
+    var direction = row.dataset.direction === 'right' ? 1 : -1;
+    var speedMult = parseFloat(row.dataset.speed) || 1;
+    var contentWidth = content.offsetWidth;
+    var x = direction === -1 ? 0 : -contentWidth;
+
+    (function animate() {
+      var speed = (80 + scrollVelocity * 0.15) * speedMult;
+      x += direction * -1 * speed / 60;
+      if (direction === -1 && x <= -contentWidth) x += contentWidth;
+      if (direction === 1 && x >= 0) x -= contentWidth;
+      row.style.transform = 'translateX(' + x + 'px)';
+      requestAnimationFrame(animate);
+    })();
+  });
+})();
+</script>
+
+<div style="position:fixed;bottom:0;left:0;right:0;padding:8px 16px;font-size:11px;color:#5a5a5e;text-align:center;z-index:99;background:rgba(9,9,11,.85);backdrop-filter:blur(8px);border-top:1px solid #1e1e22;font-family:Outfit,sans-serif">Built with <a href="https://robonuggets.com" style="color:#e8793a;text-decoration:none">Cinematic Site Modules</a> by Jay from RoboLabs.</div>
+</body>
+</html>
