@@ -146,28 +146,36 @@ Because a code-baked preset would freeze the overridden inputs, use TradingView'
 spread-only (~0.9 pt). Symbol info: **tick size 0.01, point value 1** → 1 pt = 100
 ticks, so the ~0.9 pt spread ≈ **45 ticks slippage per fill** (commission 0).
 
-**USTEC / NAS100 · 20m — ✅ VALIDATED & now the default config in both scripts.**
-Costed strategy tester (DEEP): **3yr +62.1%, PF 1.39, max DD 12.3%, 334 trades**;
-~14mo +53.1%, PF 1.30, DD 12.9% — consistent and far better than 5m (the higher
-timeframe makes the ~0.9 pt spread negligible). Reset either script's settings to
-defaults to load this.
+**USTEC / NAS100 · 20m — ✅ 12-YEAR VALIDATED (definitive config).**
+Costed strategy tester (DEEP, 2014–2026, **2,804 trades**): **+263.6%, Profit
+Factor 1.149, max DD 17.4%, win 36.1%.** Large-sample, survived 2018 / 2020 / 2022 —
+take **PF ~1.15 as the durable edge** (the 3-yr window read higher at ~1.39, but
+that's a favourable recent stretch).
 
 | Section | Input | Value |
 |---|---|---|
-| HTF Bias | Bias EMA length | 120 |
-| | HTF 1 / 2 / 3 | 1W / 1D / 2H |
-| Structure | Swing pivot length | 10 |
-| Confirmation | RSI length / threshold | 20 / 50 |
-| | Volume average length / multiple | 22 / 1 |
+| Risk | Risk per trade / compound | 1.8% / off |
+| HTF Bias | Bias EMA length | 101 |
+| | HTF 1 / 2 / 3 | 1M / 2W / 1W |
+| Structure | Swing pivot length | 5 |
+| Confirmation | RSI filter / length / threshold | on / 13 / 50 |
+| | Volume filter | **off** |
 | | Kalman | on (0.01 / 0.10) |
-| Signals | Min confluence — long / short / STRONG | 4 / 5 / 5 |
-| Trade mgmt | Stop-loss S/R lookback | 10 |
-| | ATR length / stop buffer | 4 / 1.3 |
-| | TP1 / TP2 (R) | 1 / 3 |
-| Regime | ADX length / threshold | 14 / 22 |
-| Overlays | Reversal Zones / length / dev | on / 20 / 2 |
+| Signals | Min confluence — long / short / STRONG | 4 / 4 / 5 |
+| Trade mgmt | Stop-loss S/R lookback | 15 |
+| | ATR length / stop buffer | 14 / 0.5 |
+| | TP1 / TP2 (R) | 1.6 / 3.2 |
+| Exit | Mode | Fixed TP1/TP2 |
+| Filters | HTF bias alignment / kill-zones / min ADX | **on** / off / off |
 
-(Higher TF should make the 0.9 pt spread far less punishing — confirm on the strategy tester.)
+⚠️ With HTF-align ON and monthly/2-week/weekly bias, this is essentially a
+**trend-follower aligned to NASDAQ's secular uptrend** — a chunk of the edge is
+drift capture, so expect degradation in a prolonged bear regime. Costs: slippage
+45 ticks, commission 0, margin 1%.
+
+> Note: the code *defaults* still hold an earlier intermediate 20m config (biasLen
+> 120, HTF W/D/2H). Ask to re-bake defaults to this 12-year config if you want
+> "Reset settings" to load it.
 
 ### Forward-test results (USTEC 5m, strategy, DEEP)
 
