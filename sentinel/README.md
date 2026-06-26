@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.6.0** — strategy robustness toolkit: **Smart Trail** exit mode (½ TP1, rest trails an ATR stop), entry **filters** (require HTF bias alignment / kill-zones only / min-ADX), and **risk caps** (daily-loss limit %, max-drawdown halt %). Added HTF-per-timeframe guidance for testing higher timeframes.
 - **v4.5.0** — added **`SENTINEL_strategy.pine`** for forward testing: same signal engine, executed via `strategy.*` so the native Strategy Tester gives broker-accurate stats and can drive paper/live via alerts. Risk 1.5%/trade on $50k, ½TP1/½TP2 + shared stop, Arrow-Way reversal, orders on bar close. Recorded the locked USTEC 5m config (≈PF 1.41) in *Tuned configs*.
 - **v4.4.0** — **removed the code-baked preset system** (reverting v4.2). A Pine preset works by *overriding* inputs in code, which makes those input boxes dead/non-responsive while a preset is active — confusing and easy to mistake for a bug. All inputs are now always live again. Save per-instrument configs with TradingView's **native** "Save as Default" / chart-layout-per-symbol instead (see *Saving tuned configs* below). The USTEC 5m values are preserved in this README.
 - **v4.3.0** — cleaner signal markers (SPECTRA-style): normal signals are now small triangles, strong signals are compact `BUY+` / `SELL+` pills (replacing the bulky "STRONG" text).
@@ -231,3 +232,30 @@ arrive (a rolling forward test once inputs are locked).
 Execution model: 1.5% risk per trade (full-stop loss = 1.5% of the risk base),
 ½ closes at TP1, ½ runs to TP2 (shared stop), opposite signal reverses
 (Arrow-Way), orders fill on bar close (non-repainting).
+
+### Robustness & exit options (strategy, group 8)
+
+For attacking the breakeven/47%-drawdown problem found in testing:
+- **Exit mode** — *Fixed TP1/TP2* (default) or **Smart Trail** (½ at TP1, the rest
+  rides an ATR trailing stop so winners run and roll over on reversal).
+- **Filters** (all default off) — *require HTF bias alignment* (no counter-trend),
+  *trade only in kill zones*, *min ADX* (skip range/chop; try 18–22).
+- **Risk caps** (default off) — *daily loss limit %* and *max drawdown halt %*
+  (built on `strategy.risk.*`) to put a hard ceiling on drawdown.
+
+Recommended first experiment: turn on HTF-align + kill-zone + min-ADX (fewer,
+higher-quality trades), test Fixed vs Smart Trail, and add a daily-loss cap.
+
+### Testing other timeframes
+
+Just change the chart timeframe — the strategy runs on it. **Set the HTF inputs
+higher than the chart** (rule: all three HTFs ≥ chart TF):
+
+| Chart | HTF 1 / 2 / 3 |
+|---|---|
+| 5m  | D / 4H / 30m |
+| 20m | D / 4H / 1H |
+| 1H  | W / D / 4H |
+
+Higher timeframes make the ~0.9 pt spread a much smaller % of each move, so the
+costed edge often improves — re-tune per timeframe and use multi-year DEEP history.

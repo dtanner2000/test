@@ -90,6 +90,17 @@ rr2       = input.float(3.2, "TP2 (R multiple)", minval = 0.1, step = 0.1, group
 arrowExit = input.bool(true, "Arrow-Way exit (reverse on opposite signal)", group = grpTM)
 showSig   = input.bool(true, "Plot signal markers", group = grpTM)
 
+grpRob    = "8 · Robustness & Exit"
+exitMode  = input.string("Fixed TP1/TP2", "Exit mode", options = ["Fixed TP1/TP2","Smart Trail"], group = grpRob, tooltip = "Fixed = 1/2 at TP1, 1/2 at TP2. Smart Trail = 1/2 at TP1, rest rides an ATR trailing stop (lets winners run).")
+trailLen  = input.int(10, "Smart Trail ATR length", minval = 1, group = grpRob)
+trailMult = input.float(3.0, "Smart Trail ATR multiple", minval = 0.1, step = 0.1, group = grpRob)
+reqHTF    = input.bool(false, "Filter: require HTF bias alignment", group = grpRob, tooltip = "Only longs when net bias is bullish, only shorts when bearish (no counter-trend).")
+kzOnly    = input.bool(false, "Filter: trade only in kill zones", group = grpRob, tooltip = "Only take signals during London/NY kill zones.")
+minADX    = input.float(0.0, "Filter: min ADX (0 = off)", minval = 0.0, group = grpRob, tooltip = "Skip low-trend (range/chop) conditions. Try 18-22.")
+adxLen    = input.int(14, "ADX length", minval = 1, group = grpRob)
+dayLossPct= input.float(0.0, "Risk: daily loss limit % (0 = off)", minval = 0.0, step = 0.1, group = grpRob, tooltip = "Halt new entries for the day after this % equity loss.")
+maxDDpct  = input.float(0.0, "Risk: max drawdown halt % (0 = off)", minval = 0.0, step = 0.5, group = grpRob, tooltip = "Stop the strategy entirely if equity drawdown exceeds this %.")
+
 // =============================================================================
 // MODULE 1 — HTF BIAS
 // =============================================================================
@@ -198,6 +209,20 @@ kVal  = f_kalman(close, kQ, kR)
 kBull = kVal > kVal[1]
 kBear = kVal < kVal[1]
 
+// ADX (trend-strength filter) + Smart Trail (ATR trailing stop, Supertrend-style)
+[diP_, diM_, adxVal] = ta.dmi(adxLen, adxLen)
+stAtr = ta.atr(trailLen)
+upB = hl2 - trailMult * stAtr
+dnB = hl2 + trailMult * stAtr
+var float stUp = na
+var float stDn = na
+var int   stDir = 1
+stUp := na(stUp[1]) ? upB : (close[1] > stUp[1] ? math.max(upB, stUp[1]) : upB)
+stDn := na(stDn[1]) ? dnB : (close[1] < stDn[1] ? math.min(dnB, stDn[1]) : dnB)
+stDir := stDir == -1 and close > stDn[1] ? 1 : stDir == 1 and close < stUp[1] ? -1 : stDir
+trailVal = stDir == 1 ? stUp : stDn
+plot(exitMode == "Smart Trail" ? trailVal : na, "Smart Trail", color = stDir == 1 ? color.new(color.green, 0) : color.new(color.red, 0), linewidth = 1)
+
 // =============================================================================
 // MODULE 6 — CONFLUENCE & SIGNALS
 // =============================================================================
@@ -208,8 +233,12 @@ shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (
 commit = not confirmClose or barstate.isconfirmed
 allowLong  = dirMode != "Short only"
 allowShort = dirMode != "Long only"
-longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit
-shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit
+// Robustness filters: HTF-bias alignment, kill-zone-only, ADX trend-strength.
+adxOK = minADX <= 0 or adxVal >= minADX
+filtL = (not reqHTF or biasBull) and (not kzOnly or inKillZone) and adxOK
+filtS = (not reqHTF or biasBear) and (not kzOnly or inKillZone) and adxOK
+longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit and filtL
+shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit and filtS
 longStrong  = longSignal  and longConf  >= strongConf
 shortStrong = shortSignal and shortConf >= strongConf
 
@@ -225,12 +254,19 @@ highestN = ta.highest(high, slLook)
 riskBase = compound ? strategy.equity : strategy.initial_capital
 riskCash = riskBase * riskPct / 100.0
 
+// Risk circuit-breakers (caps drawdown directly)
+if dayLossPct > 0
+    strategy.risk.max_intraday_loss(dayLossPct, strategy.percent_of_equity)
+if maxDDpct > 0
+    strategy.risk.max_drawdown(maxDDpct, strategy.percent_of_equity)
+
 // Enter when flat, or reverse on an opposite signal if Arrow-Way is enabled.
 canLong  = longSignal  and (strategy.position_size == 0 or (strategy.position_size < 0 and arrowExit))
 canShort = shortSignal and (strategy.position_size == 0 or (strategy.position_size > 0 and arrowExit))
 
 var float slL = na, var float t1L = na, var float t2L = na
 var float slS = na, var float t1S = na, var float t2S = na
+var float trailStopL = na, var float trailStopS = na
 
 if canLong
     rstop = lowestN - atrV * bufMult
@@ -240,6 +276,7 @@ if canLong
         slL := rstop
         t1L := close + r * rr1
         t2L := close + r * rr2
+        trailStopL := rstop
         strategy.entry("Long", strategy.long, qty = q)
 
 if canShort
@@ -250,15 +287,30 @@ if canShort
         slS := rstop
         t1S := close - r * rr1
         t2S := close - r * rr2
+        trailStopS := rstop
         strategy.entry("Short", strategy.short, qty = q)
 
-// Half-and-half exits with a shared stop (re-issued each bar while in a trade).
+// Ratchet the trailing stop along the Smart Trail (only moves in trade's favour).
 if strategy.position_size > 0
-    strategy.exit("L-TP1", "Long", qty_percent = 50,  limit = t1L, stop = slL)
-    strategy.exit("L-TP2", "Long", qty_percent = 100, limit = t2L, stop = slL)
+    trailStopL := math.max(nz(trailStopL, slL), trailVal)
 if strategy.position_size < 0
-    strategy.exit("S-TP1", "Short", qty_percent = 50,  limit = t1S, stop = slS)
-    strategy.exit("S-TP2", "Short", qty_percent = 100, limit = t2S, stop = slS)
+    trailStopS := math.min(nz(trailStopS, slS), trailVal)
+
+// Exits: Fixed = 1/2 TP1 + 1/2 TP2 (shared stop); Smart Trail = 1/2 TP1, rest trails.
+if strategy.position_size > 0
+    if exitMode == "Smart Trail"
+        strategy.exit("L-TP1",   "Long", qty_percent = 50,  limit = t1L, stop = trailStopL)
+        strategy.exit("L-Trail", "Long", qty_percent = 100, stop = trailStopL)
+    else
+        strategy.exit("L-TP1", "Long", qty_percent = 50,  limit = t1L, stop = slL)
+        strategy.exit("L-TP2", "Long", qty_percent = 100, limit = t2L, stop = slL)
+if strategy.position_size < 0
+    if exitMode == "Smart Trail"
+        strategy.exit("S-TP1",   "Short", qty_percent = 50,  limit = t1S, stop = trailStopS)
+        strategy.exit("S-Trail", "Short", qty_percent = 100, stop = trailStopS)
+    else
+        strategy.exit("S-TP1", "Short", qty_percent = 50,  limit = t1S, stop = slS)
+        strategy.exit("S-TP2", "Short", qty_percent = 100, limit = t2S, stop = slS)
 
 // =============================================================================
 // ALERTS (for paper/live forward testing)
