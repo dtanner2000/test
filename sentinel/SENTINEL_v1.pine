@@ -91,6 +91,8 @@ strongConf= input.int(5, "Min confluence (STRONG signal)", minval = 1, maxval = 
 confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpConf, tooltip = "When ON, signals/alerts only commit on the closed candle — what you see historically is what you'd have seen live.")
 alertMode = input.string("All", "Alert on", options = ["All","Buy only","Sell only","Strong only"], group = grpConf)
 showSig   = input.bool(true, "Plot signal markers", group = grpConf)
+reqHTF    = input.bool(true,  "Require HTF bias alignment", group = grpConf, tooltip = "Only longs when net bias is bullish / shorts when bearish (no counter-trend). Matches the validated strategy; turn off to allow counter-trend signals.")
+kzOnly    = input.bool(false, "Trade only in kill zones", group = grpConf)
 
 // --- Trade Manager & Backtest --------------------------------------------------
 grpTM     = "8 · Trade Manager & Backtest"
@@ -351,8 +353,11 @@ commit = not confirmClose or barstate.isconfirmed
 
 allowLong  = dirMode != "Short only"
 allowShort = dirMode != "Long only"
-longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit
-shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit
+// Robustness filters (match the strategy): HTF-bias alignment + optional kill-zones.
+filtL = (not reqHTF or biasBull) and (not kzOnly or inKillZone)
+filtS = (not reqHTF or biasBear) and (not kzOnly or inKillZone)
+longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit and filtL
+shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit and filtS
 longStrong  = longSignal  and longConf  >= strongConf
 shortStrong = shortSignal and shortConf >= strongConf
 longNormal  = longSignal  and not longStrong
@@ -360,8 +365,8 @@ shortNormal = shortSignal and not shortStrong
 
 // Clean, SPECTRA-style markers: tiny triangles for normal signals, compact
 // BUY+/SELL+ pills for strong ones (much less chart clutter than big text).
-plotshape(showSig and longNormal,  title = "Buy",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.tiny)
-plotshape(showSig and shortNormal, title = "Sell", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.tiny)
+plotshape(showSig and longNormal,  title = "Buy",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small, text = "B", textcolor = color.new(color.white, 0))
+plotshape(showSig and shortNormal, title = "Sell", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.small, text = "S", textcolor = color.new(color.white, 0))
 if showSig and longStrong
     label.new(bar_index, low,  "BUY+",  yloc = yloc.belowbar, style = label.style_label_up,   color = color.new(color.lime, 0), textcolor = color.black, size = size.small)
 if showSig and shortStrong
@@ -794,7 +799,7 @@ if showDash
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v4.4",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v4.8",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)

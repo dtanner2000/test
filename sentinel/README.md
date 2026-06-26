@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.8.0** — aligned the **indicator** with the validated strategy: added the **HTF-bias-alignment** filter (default ON) + a kill-zone-only toggle to the indicator's signal logic, so its on-chart backtest reflects the same trend-filtered trades the strategy validated (no more counter-trend signals dragging it down). Also made the normal Buy/Sell markers larger (small triangles with B/S text) so they're visible over the overlays.
 - **v4.7.0** — re-baked both scripts' default inputs to the **12-year validated USTEC 20m config** (PF 1.149, 2,804 trades): biasLen 101, HTF 1M/2W/1W, pivot 5, RSI 13, volume filter off, conf 4/4/5, SL 15 / ATR 14 / buffer 0.5, TP1 1.6 / TP2 3.2; strategy adds risk 1.8% + HTF-bias-alignment filter ON. "Reset settings to defaults" now loads it.
 - **v4.6.0** — strategy robustness toolkit: **Smart Trail** exit mode (½ TP1, rest trails an ATR stop), entry **filters** (require HTF bias alignment / kill-zones only / min-ADX), and **risk caps** (daily-loss limit %, max-drawdown halt %). Added HTF-per-timeframe guidance for testing higher timeframes.
 - **v4.5.0** — added **`SENTINEL_strategy.pine`** for forward testing: same signal engine, executed via `strategy.*` so the native Strategy Tester gives broker-accurate stats and can drive paper/live via alerts. Risk 1.5%/trade on $50k, ½TP1/½TP2 + shared stop, Arrow-Way reversal, orders on bar close. Recorded the locked USTEC 5m config (≈PF 1.41) in *Tuned configs*.
