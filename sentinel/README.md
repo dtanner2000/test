@@ -22,8 +22,8 @@ points of interest → wait for price → confirm the reaction → score the set
 |---------|--------------|----------------|
 | **v1**  | Foundation   | ✅ Shipped |
 | **v2**  | Execution    | ✅ Shipped |
-| **v3**  | Professional | ✅ **Shipped** (`SENTINEL_v1.pine` — single evolving script) |
-| v4      | Elite        | ⏳ planned |
+| **v3**  | Professional | ✅ Shipped |
+| **v4**  | Elite        | ✅ **Shipped** (`SENTINEL_v1.pine` — single evolving script) |
 
 ### What's in the box
 
@@ -48,6 +48,12 @@ points of interest → wait for price → confirm the reaction → score the set
 12. **Confidence grade** — the active confluence score is mapped to an **A+ / A / B / C / D** grade, shown in the dashboard.
 13. **Visual overlays** (default OFF, enable when comfortable) — **Smart Trail** (ATR trailing stop), **Trend Cloud** (fast/slow EMA fill), **Reversal Zones** (VWMA ± deviation bands).
 
+**Elite (v4):**
+14. **Kalman trend filter** — a 1-D Kalman filter on price; rising/falling adds an optional confluence point (so `maxConf` becomes 8 with it on) and can be plotted.
+15. **Market-regime classifier** (deterministic, no ML) — labels the tape **Trend / Range / Breakout / Reversal** from ADX, ATR expansion, structure shifts and reversal-zone extremes.
+16. **POI ranking** — shows the nearest demand/supply order block aligned with the current bias, with its price, in the dashboard.
+17. **Multi-symbol scanner** (default OFF) — bias + RSI for up to 5 symbols on a chosen timeframe, in its own table.
+
 > **Golden rule (from the SPECTRA setup video, applies here too):** tune per
 > instrument *and* per timeframe — a BTC 1h config won't suit Gold 4h. Budget a
 > few minutes to dial in sensitivity (pivot length, confluence thresholds,
@@ -57,6 +63,12 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.0.0** — Elite release (confirmed v3.0 runs clean on TradingView):
+  - **Kalman trend filter** — 1-D Kalman on price, added as an optional confluence (max becomes 8) and plottable.
+  - **Market-regime classifier** — Trend / Range / Breakout / Reversal from ADX + ATR expansion + structure + reversal zones.
+  - **POI ranking** — nearest bias-aligned order block shown in the dashboard.
+  - **Multi-symbol scanner** (default OFF) — bias + RSI for up to 5 symbols.
+  - Completes the v1–v4 roadmap.
 - **v3.0.0** — Professional release (confirmed v2.0 runs clean on TradingView):
   - **Order-block engine** — demand/supply zones from the last opposite candle before a structure break, with mitigation + breaker lifecycle.
   - **Confidence grade** — A+/A/B/C/D from the confluence score, shown in the dashboard.
@@ -112,9 +124,9 @@ time, memory). Trying to generate all of it in one pass produces subtly buggy co
 So it's built **in phases**, each compilable and testable before the next is added:
 
 - **v2 — Execution:** ✅ done — trade manager + backtest table + Arrow-Way exit.
-- **v3 — Professional:** ✅ done — order-block engine, confidence grade (A+/A/B), Smart Trail / Trend Cloud / Reversal Zone overlays. *(Still candidate for v4: POI ranking, Kalman trend.)*
-- **v3 — Professional:** Kalman trend filter, adaptive market-regime classifier (trend / pullback / range / breakout / reversal), multi-symbol scanner, deeper performance analytics.
-- **v4 — Elite:** multi-timeframe confluence matrix, volume-profile / HVN integration, cumulative delta where available, replay/journaling hooks, off-platform parameter optimisation.
+- **v3 — Professional:** ✅ done — order-block engine, confidence grade (A+/A/B), Smart Trail / Trend Cloud / Reversal Zone overlays.
+- **v4 — Elite:** ✅ done — Kalman trend filter, market-regime classifier, POI ranking, multi-symbol scanner.
+- **Beyond v4 (future ideas):** multi-timeframe confluence matrix, volume-profile / HVN integration, cumulative delta where available, replay/journaling hooks, off-platform (ML-assisted) parameter optimisation.
 
 ---
 

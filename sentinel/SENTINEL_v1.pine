@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 3.0  —  PROFESSIONAL
+// Version 4.0  —  ELITE
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -17,19 +17,23 @@
 //      Arrow-Way exit, W/L · WR% · P/L · Profit Factor · buy/sell split · outcomes)
 //   8. Order-block engine                    (demand/supply OBs + mitigation/breakers)
 //   9. Overlays (visual only, default OFF)   (Smart Trail / Trend Cloud / Reversal Zones)
-//   +  Confluence scoring -> Buy/Sell + STRONG signals + A+/A/B confidence grade,
-//      no-repaint commit, alert routing      (+ compact on-chart dashboard)
+//  10. Market-regime classifier              (Trend / Range / Breakout / Reversal)
+//  11. POI ranking                            (nearest demand/supply zone vs bias)
+//  12. Multi-symbol scanner                   (bias + RSI for up to 5 symbols)
+//   +  Kalman trend filter (extra confluence), A+/A/B confidence grade,
+//      Buy/Sell + STRONG signals, no-repaint commit, alert routing,
+//      and a compact on-chart dashboard.
 //
 // NO-REPAINT: with "Lock signals at candle close" ON (default), every signal is
 // committed only on the confirmed candle — historical = what you'd see live.
 // The backtest is an indicator-side SIMULATION (half at TP1, half to TP2); it is
 // an estimate for tuning, not a broker-accurate strategy fill model.
 //
-// Roadmap (NOT in this file yet): POI ranking, Kalman trend filter,
-// market-regime classifier, multi-symbol scanner. See README.md.
+// This completes the v1–v4 roadmap. Further ideas: ML-assisted parameter
+// optimisation (off-platform), volume-profile / cumulative-delta integration.
 // =============================================================================
 
-indicator("Project SENTINEL — Professional v3", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("Project SENTINEL — Elite v4", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // INPUTS
@@ -125,6 +129,24 @@ tcSlow    = input.int(50, "Cloud slow EMA", minval = 1, group = grpOv)
 showRZ    = input.bool(false, "Reversal Zones", group = grpOv, tooltip = "VWMA +/- deviation bands marking statistically stretched price.")
 rzLen     = input.int(20, "Reversal Zone length", minval = 1, group = grpOv)
 rzMult    = input.float(2.0, "Reversal Zone deviation", minval = 0.1, step = 0.1, group = grpOv)
+
+// --- Elite (v4) ----------------------------------------------------------------
+grpV4       = "12 · Elite"
+enableKalman= input.bool(true,  "Kalman trend as a confluence", group = grpV4, tooltip = "Adds a confluence point when the Kalman-filtered price is rising (long) / falling (short).")
+showKalman  = input.bool(false, "Plot Kalman trend line", group = grpV4)
+kQ          = input.float(0.01, "Kalman process noise (adaptivity)", minval = 0.0001, step = 0.001, group = grpV4, tooltip = "Higher = follows price faster, less smoothing.")
+kR          = input.float(0.10, "Kalman measurement noise (smoothing)", minval = 0.001, step = 0.01, group = grpV4, tooltip = "Higher = smoother, more lag.")
+showRegime  = input.bool(true,  "Show market regime", group = grpV4)
+adxLen      = input.int(14, "ADX length", minval = 1, group = grpV4)
+adxTrend    = input.float(22.0, "ADX trend threshold", minval = 1, group = grpV4)
+showPOI     = input.bool(true,  "Show nearest POI in dashboard", group = grpV4)
+showScanner = input.bool(false, "Show multi-symbol scanner", group = grpV4, tooltip = "Bias + RSI for up to 5 symbols on the scanner timeframe.")
+scanTF      = input.timeframe("60", "Scanner timeframe", group = grpV4)
+sym1        = input.symbol("OANDA:XAUUSD",     "Scanner symbol 1", group = grpV4)
+sym2        = input.symbol("OANDA:EURUSD",     "Scanner symbol 2", group = grpV4)
+sym3        = input.symbol("BINANCE:BTCUSDT",  "Scanner symbol 3", group = grpV4)
+sym4        = input.symbol("",                 "Scanner symbol 4", group = grpV4)
+sym5        = input.symbol("",                 "Scanner symbol 5", group = grpV4)
 
 // =============================================================================
 // MODULE 1 — HIGHER-TIMEFRAME BIAS
@@ -297,15 +319,30 @@ momBear  = rsiVal < (100 - momThresh)
 volAvg   = ta.sma(volume, volLen)
 volSpike = volume > volAvg * volMult
 
+// Kalman trend filter (1-D Kalman on price). kBull when the estimate is rising.
+f_kalman(src, q, r) =>
+    var float x = na
+    var float p = 1.0
+    x1 = na(x[1]) ? src : x[1]
+    p1 = na(p[1]) ? 1.0 : p[1] + q
+    kg = p1 / (p1 + r)
+    x := x1 + kg * (src - x1)
+    p := (1 - kg) * p1
+    x
+kVal  = f_kalman(close, kQ, kR)
+kBull = kVal > kVal[1]
+kBear = kVal < kVal[1]
+plot(showKalman ? kVal : na, "Kalman trend", color = kBull ? color.new(color.aqua, 0) : color.new(color.orange, 0), linewidth = 2)
+
 // =============================================================================
 // MODULE 6 — CONFLUENCE SCORING, SIGNALS & ALERTS
 // =============================================================================
 // Base 5 confluences (HTF bias, structure, sweep, FVG tap, kill zone) plus the
-// optional momentum and volume filters. Max scales with which filters are on.
-maxConf = 5 + (enableMom ? 1 : 0) + (enableVol ? 1 : 0)
+// optional momentum, volume and Kalman filters. Max scales with which are on.
+maxConf = 5 + (enableMom ? 1 : 0) + (enableVol ? 1 : 0) + (enableKalman ? 1 : 0)
 
-longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0)  + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBull ? 1 : 0) + (enableVol and volSpike ? 1 : 0)
-shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBear ? 1 : 0) + (enableVol and volSpike ? 1 : 0)
+longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0)  + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBull ? 1 : 0) + (enableVol and volSpike ? 1 : 0) + (enableKalman and kBull ? 1 : 0)
+shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBear ? 1 : 0) + (enableVol and volSpike ? 1 : 0) + (enableKalman and kBear ? 1 : 0)
 
 // No-repaint: only commit on the confirmed candle when confirmClose is ON.
 commit = not confirmClose or barstate.isconfirmed
@@ -642,6 +679,70 @@ pRzL = plot(showRZ ? rzLo : na, "Reversal lower", color = color.new(color.green,
 fill(pRzU, pRzL, color = color.new(color.purple, 93), title = "Reversal Zone")
 
 // =============================================================================
+// MODULE 10 — MARKET-REGIME CLASSIFIER (deterministic, no ML)
+// =============================================================================
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+atrNow = ta.atr(14)
+atrAvg = ta.sma(atrNow, 50)
+expanding   = atrNow > atrAvg * 1.5
+chochRecent = ta.barssince(chochUp or chochDn) <= 5
+nearRev     = close > rzUp or close < rzLo
+regime = expanding ? "Breakout" : (chochRecent or nearRev) ? "Reversal" : adxVal >= adxTrend ? "Trend" : "Range"
+regimeCol = regime == "Trend" ? color.new(color.green, 0) : regime == "Breakout" ? color.new(color.aqua, 0) : regime == "Reversal" ? color.new(color.orange, 0) : color.new(color.gray, 0)
+
+// =============================================================================
+// MODULE 11 — POI RANKING (nearest zone aligned with bias)
+// =============================================================================
+f_nearestMid(boxes) =>
+    float best = na
+    float bestDist = na
+    if array.size(boxes) > 0
+        for i = 0 to array.size(boxes) - 1
+            b = array.get(boxes, i)
+            mid = (box.get_top(b) + box.get_bottom(b)) / 2
+            d = math.abs(close - mid)
+            if na(bestDist) or d < bestDist
+                bestDist := d
+                best := mid
+    best
+poiMid = biasBull ? f_nearestMid(bullOB) : biasBear ? f_nearestMid(bearOB) : na
+poiTxt = na(poiMid) ? "—" : (biasBull ? "▲ " : "▼ ") + str.tostring(poiMid, format.mintick)
+
+// =============================================================================
+// MODULE 12 — MULTI-SYMBOL SCANNER
+// =============================================================================
+f_scan(sym) =>
+    request.security(sym, scanTF, [close, ta.ema(close, biasLen), ta.rsi(close, momLen)], lookahead = barmerge.lookahead_off)
+
+[c1, e1, r1] = f_scan(sym1 == "" ? syminfo.tickerid : sym1)
+[c2, e2, r2] = f_scan(sym2 == "" ? syminfo.tickerid : sym2)
+[c3, e3, r3] = f_scan(sym3 == "" ? syminfo.tickerid : sym3)
+[c4, e4, r4] = f_scan(sym4 == "" ? syminfo.tickerid : sym4)
+[c5, e5, r5] = f_scan(sym5 == "" ? syminfo.tickerid : sym5)
+
+f_scanRow(t, r, name, c, e, rsi, bgc) =>
+    bull = c > e
+    table.cell(t, 0, r, name, bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+    table.cell(t, 1, r, bull ? "▲ Bull" : "▼ Bear", bgcolor = bgc, text_color = bull ? color.new(color.green, 0) : color.new(color.red, 0), text_size = size.tiny)
+    table.cell(t, 2, r, str.tostring(rsi, "#"), bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+
+var table scan = na
+if showScanner
+    if na(scan)
+        scan := table.new(position.middle_left, 3, 6, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+    if barstate.islast
+        sHd = color.new(#0b2a4a, 0)
+        sBg = color.new(#11151c, 0)
+        table.cell(scan, 0, 0, "SCANNER " + scanTF, bgcolor = sHd, text_color = color.new(color.aqua, 0), text_size = size.tiny)
+        table.cell(scan, 1, 0, "Bias", bgcolor = sHd, text_color = color.new(color.white, 0), text_size = size.tiny)
+        table.cell(scan, 2, 0, "RSI",  bgcolor = sHd, text_color = color.new(color.white, 0), text_size = size.tiny)
+        f_scanRow(scan, 1, sym1 == "" ? "—" : sym1, c1, e1, r1, sBg)
+        f_scanRow(scan, 2, sym2 == "" ? "—" : sym2, c2, e2, r2, sBg)
+        f_scanRow(scan, 3, sym3 == "" ? "—" : sym3, c3, e3, r3, sBg)
+        f_scanRow(scan, 4, sym4 == "" ? "—" : sym4, c4, e4, r4, sBg)
+        f_scanRow(scan, 5, sym5 == "" ? "—" : sym5, c5, e5, r5, sBg)
+
+// =============================================================================
 // DASHBOARD
 // =============================================================================
 f_dashPos() =>
@@ -673,17 +774,19 @@ sigTxt = longStrong ? "STRONG BUY" : longSignal ? "BUY" : shortStrong ? "STRONG 
 sigCol = longSignal ? color.new(color.green, 0) : shortSignal ? color.new(color.red, 0) : color.new(color.gray, 0)
 actConf  = math.max(longConf, shortConf)
 gradeTxt = f_grade(actConf, maxConf)
+kTxt = kBull ? "▲ Bull" : kBear ? "▼ Bear" : "— Flat"
+kCol = f_biasCol(kBull ? 1 : kBear ? -1 : 0)
 
 var table dash = na
 if showDash
     if na(dash)
-        dash := table.new(f_dashPos(), 2, 13, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+        dash := table.new(f_dashPos(), 2, 16, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
     if barstate.islast
         bg = color.new(#11151c, 0)
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v3.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v4.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
@@ -718,6 +821,15 @@ if showDash
 
         table.cell(dash, 0, 12, "Grade", bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 12, gradeTxt + " (" + str.tostring(actConf) + "/" + str.tostring(maxConf) + ")", bgcolor = bg, text_color = f_gradeCol(gradeTxt), text_size = size.small)
+
+        table.cell(dash, 0, 13, "Kalman", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 13, enableKalman ? kTxt : "off", bgcolor = bg, text_color = enableKalman ? kCol : color.new(color.gray, 0), text_size = size.small)
+
+        table.cell(dash, 0, 14, "Regime", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 14, showRegime ? regime : "off", bgcolor = bg, text_color = showRegime ? regimeCol : color.new(color.gray, 0), text_size = size.small)
+
+        table.cell(dash, 0, 15, "POI", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 15, showPOI ? poiTxt : "off", bgcolor = bg, text_color = tc, text_size = size.small)
 // =============================================================================
 // END OF SENTINEL
 // =============================================================================
