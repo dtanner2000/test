@@ -32,12 +32,24 @@ points of interest → wait for price → confirm the reaction → score the set
 3. **Liquidity engine** — sweep / stop-hunt detection (wick takes prior swing, closes back inside).
 4. **Market structure** — BOS / CHOCH derived from swing pivots, with a running trend state.
 5. **Session intelligence** — Asian / London / New York kill-zone shading + PDH/PDL and PWH/PWL liquidity levels.
-6. **Confluence scoring** — 5-point long/short score → triangle signals, dynamic `alert()` messages, template `alertcondition()`s, and a compact on-chart dashboard.
+6. **Confirmation filters** — RSI momentum + volume participation, added as confluences (keep both ON).
+7. **Confluence scoring** — dynamic `X/maxConf` long/short score → **Buy/Sell + STRONG** signals, **no-repaint** commit-on-close, alert routing (all/buy/sell/strong), template `alertcondition()`s, and a compact on-chart dashboard.
+
+> **Golden rule (from the SPECTRA setup video, applies here too):** tune per
+> instrument *and* per timeframe — a BTC 1h config won't suit Gold 4h. Budget a
+> few minutes to dial in sensitivity (pivot length, confluence thresholds,
+> RSI/volume) for each new chart.
 
 ---
 
 ## Changelog
 
+- **v1.1.0** — folded in lessons from the SPECTRA setup video ([`docs/spectra-setup-notes.md`](docs/spectra-setup-notes.md)):
+  - **No-repaint mode** (`Lock signals at candle close`, default ON) — signals/alerts commit only on the confirmed candle.
+  - **Momentum (RSI) + volume confirmation filters** — added as confluences (keep both ON); confluence max scales with which filters are enabled (`X/maxConf`).
+  - **Normal vs STRONG signals** — separate `strongConf` threshold upgrades high-conviction setups.
+  - **Alert routing** — All / Buy only / Sell only / Strong only.
+  - Dashboard gains Momentum, Volume and live Signal rows.
 - **v1.0.1** — refinements after first review:
   - FVG confluence now requires price to be **interacting with a live FVG zone**, not merely that one exists somewhere on the chart.
   - Liquidity sweeps fire **once per fresh sweep** (no repeat while the wick stays beyond the swing) — applies to labels, signals and alerts.
@@ -75,7 +87,7 @@ time, memory). Trying to generate all of it in one pass produces subtly buggy co
 
 So it's built **in phases**, each compilable and testable before the next is added:
 
-- **v2 — Execution:** order-block engine (bull/bear OBs, breakers, mitigation blocks), POI ranking, confidence grade (A+/A/B…), dynamic trade manager (entry / stop / TP1-3 / RR / position size), statistics panel.
+- **v2 — Execution:** dynamic **trade manager** (entry / stop from S/R lookback + buffer / TP1 / TP2, half-and-half management) **+ backtest table** (trades, win-rate, **profit factor**, P&L, buy/sell split, outcome breakdown TP1+TP2 / TP1+SL / SL / BE) — these ship together since the table scores the manager's trades. Plus **Arrow-Way exit** (flip on opposite signal), order-block engine (bull/bear OBs, breakers, mitigation blocks), POI ranking, confidence grade (A+/A/B…).
 - **v3 — Professional:** Kalman trend filter, adaptive market-regime classifier (trend / pullback / range / breakout / reversal), multi-symbol scanner, deeper performance analytics.
 - **v4 — Elite:** multi-timeframe confluence matrix, volume-profile / HVN integration, cumulative delta where available, replay/journaling hooks, off-platform parameter optimisation.
 

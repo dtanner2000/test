@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 1.0  —  FOUNDATION
+// Version 1.1  —  FOUNDATION
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -12,11 +12,17 @@
 //   4. Market-structure engine              (BOS / CHOCH from swing pivots)
 //   5. Session intelligence                 (Asian / London / NY kill zones)
 //                                           (PDH/PDL + PWH/PWL liquidity levels)
-//   6. Confluence scoring -> smart alerts   (+ compact on-chart dashboard)
+//   6. Confirmation filters                  (RSI momentum + volume participation)
+//   7. Confluence scoring -> Buy/Sell + STRONG signals, no-repaint commit,
+//      alert routing (all/buy/sell/strong)   (+ compact on-chart dashboard)
+//
+// NO-REPAINT: with "Lock signals at candle close" ON (default), every signal is
+// committed only on the confirmed candle — historical = what you'd see live.
 //
 // Roadmap (NOT in this file yet): order-block engine, confidence grading,
-// dynamic trade manager (entry/stop/TP1-3/RR), full backtester, Kalman trend,
-// market-regime classifier, multi-symbol scanner. See README.md.
+// dynamic trade manager (entry/stop + TP1/TP2, S/R lookback + buffer),
+// full backtester (PF / WR / buy-sell split / outcomes), Arrow-Way exit,
+// Kalman trend, market-regime classifier, multi-symbol scanner. See README.md.
 // =============================================================================
 
 indicator("Project SENTINEL — Foundation v1", "SENTINEL v1", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
@@ -59,13 +65,25 @@ lonSess   = input.session("0200-0500", "London kill zone",group = grpSess)
 nySess    = input.session("0830-1100", "New York kill zone", group = grpSess)
 showLevels= input.bool(true, "Show PDH/PDL & PWH/PWL", group = grpSess)
 
-// --- Confluence / Alerts -------------------------------------------------------
-grpConf   = "6 · Confluence & Alerts"
-minConf   = input.int(3, "Min confluence for a signal", minval = 1, maxval = 5, group = grpConf, tooltip = "How many of the 5 confluences (HTF bias, structure, sweep, FVG, kill zone) must align to fire a signal.")
-showSig   = input.bool(true, "Plot signal triangles", group = grpConf)
+// --- Confirmation filters ------------------------------------------------------
+grpFilt   = "6 · Confirmation Filters"
+enableMom = input.bool(true, "Enable momentum (RSI) filter", group = grpFilt, tooltip = "Adds a confluence point when RSI agrees with the trade direction. Keep ON.")
+momLen    = input.int(14, "RSI length", minval = 2, group = grpFilt)
+momThresh = input.int(50, "RSI bull/bear threshold", minval = 1, maxval = 99, group = grpFilt, tooltip = "Bull when RSI > threshold, bear when RSI < (100 - threshold). 50 = simple midline.")
+enableVol = input.bool(true, "Enable volume filter", group = grpFilt, tooltip = "Adds a confluence point when volume exceeds its average (participation). Keep ON.")
+volLen    = input.int(20, "Volume average length", minval = 2, group = grpFilt)
+volMult   = input.float(1.0, "Volume multiple", minval = 0.1, step = 0.1, group = grpFilt)
+
+// --- Signals & Alerts ----------------------------------------------------------
+grpConf   = "7 · Signals & Alerts"
+minConf   = input.int(3, "Min confluence (normal signal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal signal.")
+strongConf= input.int(5, "Min confluence (STRONG signal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to upgrade a signal to Strong (higher conviction).")
+confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpConf, tooltip = "When ON, signals/alerts only commit on the closed candle — what you see historically is what you'd have seen live.")
+alertMode = input.string("All", "Alert on", options = ["All","Buy only","Sell only","Strong only"], group = grpConf)
+showSig   = input.bool(true, "Plot signal markers", group = grpConf)
 
 // --- Dashboard -----------------------------------------------------------------
-grpDash   = "7 · Dashboard"
+grpDash   = "8 · Dashboard"
 showDash  = input.bool(true, "Show dashboard", group = grpDash)
 dashPos   = input.string("Top Right", "Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpDash)
 
@@ -230,29 +248,54 @@ plot(showLevels ? pwh : na, "PWH", color = color.new(color.red,   40), style = p
 plot(showLevels ? pwl : na, "PWL", color = color.new(color.green, 40), style = plot.style_linebr, linewidth = 2)
 
 // =============================================================================
+// CONFIRMATION FILTERS (momentum + volume)
+// =============================================================================
+rsiVal   = ta.rsi(close, momLen)
+momBull  = rsiVal > momThresh
+momBear  = rsiVal < (100 - momThresh)
+volAvg   = ta.sma(volume, volLen)
+volSpike = volume > volAvg * volMult
+
+// =============================================================================
 // MODULE 6 — CONFLUENCE SCORING, SIGNALS & ALERTS
 // =============================================================================
-// 5 confluences each for long and short. A signal needs >= minConf AND a sweep
-// trigger this bar (price has come to liquidity and reacted).
+// Base 5 confluences (HTF bias, structure, sweep, FVG tap, kill zone) plus the
+// optional momentum and volume filters. Max scales with which filters are on.
+maxConf = 5 + (enableMom ? 1 : 0) + (enableVol ? 1 : 0)
 
-longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0) + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0)
-shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0)
+longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0)  + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBull ? 1 : 0) + (enableVol and volSpike ? 1 : 0)
+shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBear ? 1 : 0) + (enableVol and volSpike ? 1 : 0)
 
-longSignal  = sweepLow  and longConf  >= minConf
-shortSignal = sweepHigh and shortConf >= minConf
+// No-repaint: only commit on the confirmed candle when confirmClose is ON.
+commit = not confirmClose or barstate.isconfirmed
 
-plotshape(showSig and longSignal,  title = "Long signal",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small, text = "L")
-plotshape(showSig and shortSignal, title = "Short signal", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.small, text = "S")
+longSignal  = sweepLow  and longConf  >= minConf and commit
+shortSignal = sweepHigh and shortConf >= minConf and commit
+longStrong  = longSignal  and longConf  >= strongConf
+shortStrong = shortSignal and shortConf >= strongConf
+longNormal  = longSignal  and not longStrong
+shortNormal = shortSignal and not shortStrong
 
-// Rich runtime alerts (dynamic message)
-if longSignal
-    alert("SENTINEL LONG  |  " + syminfo.ticker + "  |  confluence " + str.tostring(longConf) + "/5  |  price " + str.tostring(close), alert.freq_once_per_bar)
-if shortSignal
-    alert("SENTINEL SHORT |  " + syminfo.ticker + "  |  confluence " + str.tostring(shortConf) + "/5  |  price " + str.tostring(close), alert.freq_once_per_bar)
+plotshape(showSig and longNormal,  title = "Buy",         style = shape.triangleup,   location = location.belowbar, color = color.new(color.green,  0), size = size.small,  text = "Buy")
+plotshape(showSig and longStrong,  title = "Strong Buy",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime,   0), size = size.normal, text = "STRONG")
+plotshape(showSig and shortNormal, title = "Sell",        style = shape.triangledown, location = location.abovebar, color = color.new(color.red,    0), size = size.small,  text = "Sell")
+plotshape(showSig and shortStrong, title = "Strong Sell", style = shape.triangledown, location = location.abovebar, color = color.new(color.maroon, 0), size = size.normal, text = "STRONG")
+
+// Alert routing
+allowBuy  = alertMode == "All" or alertMode == "Buy only"
+allowSell = alertMode == "All" or alertMode == "Sell only"
+buyAlert  = longSignal  and (alertMode == "Strong only" ? longStrong  : allowBuy)
+sellAlert = shortSignal and (alertMode == "Strong only" ? shortStrong : allowSell)
+
+if buyAlert
+    alert("SENTINEL " + (longStrong ? "STRONG BUY" : "BUY") + "  |  " + syminfo.ticker + "  |  confluence " + str.tostring(longConf) + "/" + str.tostring(maxConf) + "  |  price " + str.tostring(close), alert.freq_once_per_bar)
+if sellAlert
+    alert("SENTINEL " + (shortStrong ? "STRONG SELL" : "SELL") + "  |  " + syminfo.ticker + "  |  confluence " + str.tostring(shortConf) + "/" + str.tostring(maxConf) + "  |  price " + str.tostring(close), alert.freq_once_per_bar)
 
 // Template alertcondition()s (for users who prefer the alert dialog dropdown)
-alertcondition(longSignal,  "SENTINEL Long",  "SENTINEL long setup confirmed")
-alertcondition(shortSignal, "SENTINEL Short", "SENTINEL short setup confirmed")
+alertcondition(longSignal,  "SENTINEL Buy",  "SENTINEL buy setup confirmed")
+alertcondition(shortSignal, "SENTINEL Sell", "SENTINEL sell setup confirmed")
+alertcondition(longStrong or shortStrong, "SENTINEL Strong only", "SENTINEL strong setup confirmed")
 alertcondition(sweepLow or sweepHigh, "SENTINEL Liquidity Sweep", "Liquidity sweep detected")
 
 // =============================================================================
@@ -273,16 +316,23 @@ f_biasCol(v) => v > 0 ? color.new(color.green, 0) : v < 0 ? color.new(color.red,
 sessTxt = inLondon ? "London KZ" : inNY ? "New York KZ" : inAsian ? "Asian" : "Off-session"
 sessCol = inKillZone ? color.new(color.green, 0) : color.new(color.gray, 0)
 
+momTxt = not enableMom ? "off" : momBull ? "▲ Bull" : momBear ? "▼ Bear" : "— Flat"
+momCol = not enableMom ? color.new(color.gray, 0) : f_biasCol(momBull ? 1 : momBear ? -1 : 0)
+volTxt = not enableVol ? "off" : volSpike ? "High" : "Normal"
+volCol = not enableVol ? color.new(color.gray, 0) : volSpike ? color.new(color.green, 0) : color.new(color.gray, 0)
+sigTxt = longStrong ? "STRONG BUY" : longSignal ? "BUY" : shortStrong ? "STRONG SELL" : shortSignal ? "SELL" : "—"
+sigCol = longSignal ? color.new(color.green, 0) : shortSignal ? color.new(color.red, 0) : color.new(color.gray, 0)
+
 var table dash = na
 if showDash
     if na(dash)
-        dash := table.new(f_dashPos(), 2, 9, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+        dash := table.new(f_dashPos(), 2, 12, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
     if barstate.islast
         bg = color.new(#11151c, 0)
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v1",               bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v1.1",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
@@ -300,11 +350,20 @@ if showDash
         table.cell(dash, 0, 6, "Session", bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 6, sessTxt, bgcolor = bg, text_color = sessCol, text_size = size.small)
 
-        table.cell(dash, 0, 7, "Long conf", bgcolor = bg, text_color = tc, text_size = size.small)
-        table.cell(dash, 1, 7, str.tostring(longConf) + "/5", bgcolor = bg, text_color = longConf >= minConf ? color.new(color.green,0) : tc, text_size = size.small)
+        table.cell(dash, 0, 7, "Momentum", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 7, momTxt, bgcolor = bg, text_color = momCol, text_size = size.small)
 
-        table.cell(dash, 0, 8, "Short conf", bgcolor = bg, text_color = tc, text_size = size.small)
-        table.cell(dash, 1, 8, str.tostring(shortConf) + "/5", bgcolor = bg, text_color = shortConf >= minConf ? color.new(color.red,0) : tc, text_size = size.small)
+        table.cell(dash, 0, 8, "Volume", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 8, volTxt, bgcolor = bg, text_color = volCol, text_size = size.small)
+
+        table.cell(dash, 0, 9, "Long conf", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 9, str.tostring(longConf) + "/" + str.tostring(maxConf), bgcolor = bg, text_color = longConf >= minConf ? color.new(color.green,0) : tc, text_size = size.small)
+
+        table.cell(dash, 0, 10, "Short conf", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 10, str.tostring(shortConf) + "/" + str.tostring(maxConf), bgcolor = bg, text_color = shortConf >= minConf ? color.new(color.red,0) : tc, text_size = size.small)
+
+        table.cell(dash, 0, 11, "Signal", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 11, sigTxt, bgcolor = bg, text_color = sigCol, text_size = size.small)
 // =============================================================================
 // END OF FOUNDATION v1
 // =============================================================================
