@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.4.0** — **removed the code-baked preset system** (reverting v4.2). A Pine preset works by *overriding* inputs in code, which makes those input boxes dead/non-responsive while a preset is active — confusing and easy to mistake for a bug. All inputs are now always live again. Save per-instrument configs with TradingView's **native** "Save as Default" / chart-layout-per-symbol instead (see *Saving tuned configs* below). The USTEC 5m values are preserved in this README.
 - **v4.3.0** — cleaner signal markers (SPECTRA-style): normal signals are now small triangles, strong signals are compact `BUY+` / `SELL+` pills (replacing the bulky "STRONG" text).
 - **v4.2.0** — instrument presets:
   - **Preset dropdown** (`★ Preset`) — `Manual` or `USTEC 5m`. Selecting a preset overrides the key engine parameters with a tuned set; the dashboard badge shows the active preset.
@@ -100,6 +101,38 @@ points of interest → wait for price → confirm the reaction → score the set
   - Sweep *detection* decoupled from the *display* toggle, so hiding sweep labels no longer silently drops the sweep confluence.
   - Note: hiding FVGs (`Show FVGs` off) disables the FVG confluence, since zones are only tracked when drawn.
 - **v1.0.0** — initial Foundation release.
+
+## Saving tuned configs (presets)
+
+Because a code-baked preset would freeze the overridden inputs, use TradingView's
+**native** mechanisms instead — every input stays live and editable:
+
+- **Save as Default** — tune the inputs, then in the settings dialog click the
+  **"Defaults"** dropdown (bottom-left) → **Save as Default**. New instances load
+  with your tuned values.
+- **Per-symbol chart layouts** — save a separate chart layout per instrument
+  (e.g. one for USTEC, one for XAUUSD); each remembers its own SENTINEL settings.
+- **Indicator template** — save SENTINEL (with settings) as a template from the
+  templates icon on the toolbar, then apply it to any chart.
+
+### Tuned configs (record)
+
+**USTEC / NAS100 · 5m** (≈ Profit Factor 1.36 in testing; all other inputs at default):
+
+| Input | Value |
+|---|---|
+| Bias EMA length | 25 |
+| HTF 1 / 2 / 3 | 1D / 4H / 30m |
+| RSI length | 20 |
+| Volume average length | 19 |
+| Min confluence — long | 5 |
+| Min confluence — short | 4 |
+| Min confluence (STRONG) | 5 |
+| TP2 (R multiple) | 3.2 |
+| Reversal Zone length | 28 |
+
+> Note: TradingView backtest numbers shift between sessions with the amount of
+> loaded history — compare configs with the same bars loaded.
 
 ## Install
 
