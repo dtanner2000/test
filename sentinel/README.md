@@ -142,8 +142,27 @@ Because a code-baked preset would freeze the overridden inputs, use TradingView'
 | Overlays | Reversal Zones / length / deviation | on / 30 / 2 |
 
 **Risk (strategy):** 1.5% per trade on $50k. **Costs:** USTEC on IC Markets is
-spread-only (~0.9 pt); commission 0, set slippage to taste in the Strategy
-Tester *Properties* tab.
+spread-only (~0.9 pt). Symbol info: **tick size 0.01, point value 1** → 1 pt = 100
+ticks, so the ~0.9 pt spread ≈ **45 ticks slippage per fill** (commission 0).
+
+### Forward-test results (USTEC 5m, strategy, DEEP)
+
+⚠️ **Reality check.** The on-chart indicator PF (1.41) was tuned on a short recent
+window. The costed `strategy()` over longer windows tells a different story:
+
+| Window | PnL | Profit Factor | Win% | Max DD |
+|---|---|---|---|---|
+| 365d | −0.70% | **0.999** | 41.9% | **47.3%** |
+| 90d | +22.1% | 1.144 | 44.4% | 12.4% |
+| 30d | −0.67% | 0.985 | 42.7% | 15.7% |
+| 7d | −5.14% | 0.759 | 33.3% | 12.2% |
+
+(These ran with ~zero slippage; real 0.9 pt spread makes them worse.) **Conclusion:
+not a deployable mechanical edge as-is** — full-year PF ≈ breakeven with a ~47%
+drawdown. Next: re-tune for *robustness* (optimise over a long window, validate
+out-of-sample / walk-forward), prioritise cutting drawdown, target PF >1.2
+consistently across windows with max DD <~20%. Treat the indicator as
+decision-support, not a turnkey system, until that bar is cleared.
 
 > Note: TradingView backtest numbers shift between sessions with the amount of
 > loaded history — compare configs with the same bars loaded.
