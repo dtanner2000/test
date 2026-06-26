@@ -30,7 +30,7 @@
 // Strategy Tester report stays empty. Set this to your broker's index leverage
 // in the Properties tab (e.g. 0.5 for 1:200). Margin only affects affordability,
 // not P/L. Commission 0 (index CFD = spread-only); set slippage to your spread.
-strategy("SENTINEL Strategy — Execution", "SENTINEL ST", overlay = true, initial_capital = 50000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, pyramiding = 0, process_orders_on_close = true, commission_type = strategy.commission.cash_per_order, commission_value = 0.0, slippage = 5, margin_long = 1.0, margin_short = 1.0, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+strategy("SENTINEL Strategy — Execution", "SENTINELST", overlay = true, initial_capital = 50000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, pyramiding = 0, process_orders_on_close = true, commission_type = strategy.commission.cash_per_order, commission_value = 0.0, slippage = 5, margin_long = 1.0, margin_short = 1.0, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // RISK & COSTS
@@ -254,11 +254,10 @@ highestN = ta.highest(high, slLook)
 riskBase = compound ? strategy.equity : strategy.initial_capital
 riskCash = riskBase * riskPct / 100.0
 
-// Risk circuit-breakers (caps drawdown directly)
-if dayLossPct > 0
-    strategy.risk.max_intraday_loss(dayLossPct, strategy.percent_of_equity)
-if maxDDpct > 0
-    strategy.risk.max_drawdown(maxDDpct, strategy.percent_of_equity)
+// Risk circuit-breakers (caps drawdown). Must be GLOBAL scope (not inside an if);
+// a large value = effectively off when the input is 0.
+strategy.risk.max_intraday_loss(dayLossPct > 0 ? dayLossPct : 100000, strategy.percent_of_equity)
+strategy.risk.max_drawdown(maxDDpct > 0 ? maxDDpct : 100000, strategy.percent_of_equity)
 
 // Enter when flat, or reverse on an opposite signal if Arrow-Way is enabled.
 canLong  = longSignal  and (strategy.position_size == 0 or (strategy.position_size < 0 and arrowExit))
