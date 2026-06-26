@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 4.1  —  ELITE
+// Version 4.2  —  ELITE (instrument presets)
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -39,12 +39,16 @@ indicator("Project SENTINEL — Elite v4", "SENTINEL", overlay = true, max_lines
 // INPUTS
 // =============================================================================
 
+// --- Preset --------------------------------------------------------------------
+grpPreset = "★ Preset"
+preset    = input.string("Manual", "Load preset", options = ["Manual","USTEC 5m"], group = grpPreset, tooltip = "USTEC 5m loads the tuned NAS100/USTEC config. It overrides the key engine parameters; all other inputs stay as set below (keep them at default for the exact tuned config). Choose Manual to use your own inputs.")
+
 // --- Higher-Timeframe Bias -----------------------------------------------------
 grpBias   = "1 · Higher-Timeframe Bias"
-biasLen   = input.int(50,  "Bias EMA length",            minval = 2,  group = grpBias, tooltip = "Each HTF is bullish when its close is above this EMA, bearish when below.")
+biasLen_i = input.int(50,  "Bias EMA length",            minval = 2,  group = grpBias, tooltip = "Each HTF is bullish when its close is above this EMA, bearish when below.")
 tf1       = input.timeframe("D",   "HTF 1",              group = grpBias)
 tf2       = input.timeframe("240", "HTF 2",              group = grpBias)
-tf3       = input.timeframe("120", "HTF 3",              group = grpBias)
+tf3_i     = input.timeframe("120", "HTF 3",              group = grpBias)
 showBiasBG= input.bool(false, "Tint background with net bias", group = grpBias)
 
 // --- Market Structure ----------------------------------------------------------
@@ -76,17 +80,17 @@ showLevels= input.bool(true, "Show PDH/PDL & PWH/PWL", group = grpSess)
 // --- Confirmation filters ------------------------------------------------------
 grpFilt   = "6 · Confirmation Filters"
 enableMom = input.bool(true, "Enable momentum (RSI) filter", group = grpFilt, tooltip = "Adds a confluence point when RSI agrees with the trade direction. Keep ON.")
-momLen    = input.int(14, "RSI length", minval = 2, group = grpFilt)
+momLen_i  = input.int(14, "RSI length", minval = 2, group = grpFilt)
 momThresh = input.int(50, "RSI bull/bear threshold", minval = 1, maxval = 99, group = grpFilt, tooltip = "Bull when RSI > threshold, bear when RSI < (100 - threshold). 50 = simple midline.")
 enableVol = input.bool(true, "Enable volume filter", group = grpFilt, tooltip = "Adds a confluence point when volume exceeds its average (participation). Keep ON.")
-volLen    = input.int(20, "Volume average length", minval = 2, group = grpFilt)
+volLen_i  = input.int(20, "Volume average length", minval = 2, group = grpFilt)
 volMult   = input.float(1.0, "Volume multiple", minval = 0.1, step = 0.1, group = grpFilt)
 
 // --- Signals & Alerts ----------------------------------------------------------
 grpConf   = "7 · Signals & Alerts"
 dirMode   = input.string("Both", "Trade direction", options = ["Both","Long only","Short only"], group = grpConf, tooltip = "Filter signals by side. Use to suppress one direction on instruments with a structural drift (e.g. indices).")
-minConf   = input.int(3, "Min confluence — long (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal LONG signal.")
-minConfS  = input.int(3, "Min confluence — short (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal SHORT signal. Raise this independently to cut weak shorts.")
+minConf_i = input.int(3, "Min confluence — long (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal LONG signal.")
+minConfS_i= input.int(3, "Min confluence — short (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal SHORT signal. Raise this independently to cut weak shorts.")
 strongConf= input.int(5, "Min confluence (STRONG signal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to upgrade a signal to Strong (higher conviction).")
 confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpConf, tooltip = "When ON, signals/alerts only commit on the closed candle — what you see historically is what you'd have seen live.")
 alertMode = input.string("All", "Alert on", options = ["All","Buy only","Sell only","Strong only"], group = grpConf)
@@ -100,7 +104,7 @@ slLook    = input.int(10, "Stop-loss S/R lookback (bars)", minval = 1, group = g
 atrLenTM  = input.int(14, "ATR length (stop buffer)", minval = 1, group = grpTM)
 bufMult   = input.float(0.5, "Stop buffer (ATR multiple)", minval = 0.0, step = 0.1, group = grpTM, tooltip = "Extra padding beyond the swing, as a multiple of ATR (wick protection).")
 rr1       = input.float(1.0, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
-rr2       = input.float(2.0, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+rr2_i     = input.float(2.0, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
 arrowExit = input.bool(true,  "Arrow-Way exit on opposite signal", group = grpTM, tooltip = "Close the active trade early when an opposite signal fires.")
 keepTrades= input.int(15, "Trade drawings to keep", minval = 1, maxval = 100, group = grpTM)
 showBT    = input.bool(true,  "Show backtest table", group = grpTM)
@@ -129,7 +133,7 @@ showCloud = input.bool(false, "Trend Cloud", group = grpOv, tooltip = "Fast vs s
 tcFast    = input.int(20, "Cloud fast EMA", minval = 1, group = grpOv)
 tcSlow    = input.int(50, "Cloud slow EMA", minval = 1, group = grpOv)
 showRZ    = input.bool(false, "Reversal Zones", group = grpOv, tooltip = "VWMA +/- deviation bands marking statistically stretched price.")
-rzLen     = input.int(20, "Reversal Zone length", minval = 1, group = grpOv)
+rzLen_i   = input.int(20, "Reversal Zone length", minval = 1, group = grpOv)
 rzMult    = input.float(2.0, "Reversal Zone deviation", minval = 0.1, step = 0.1, group = grpOv)
 
 // --- Elite (v4) ----------------------------------------------------------------
@@ -149,6 +153,23 @@ sym2        = input.symbol("OANDA:EURUSD",     "Scanner symbol 2", group = grpV4
 sym3        = input.symbol("BINANCE:BTCUSDT",  "Scanner symbol 3", group = grpV4)
 sym4        = input.symbol("",                 "Scanner symbol 4", group = grpV4)
 sym5        = input.symbol("",                 "Scanner symbol 5", group = grpV4)
+
+// =============================================================================
+// PRESET RESOLUTION
+// =============================================================================
+// Each tuned parameter resolves to its preset value when a preset is selected,
+// otherwise to the input value. To add a pair: add it to the `preset` dropdown
+// options above, then extend each line with another ternary branch, e.g.
+//   biasLen = ustec ? 25 : gold ? 40 : biasLen_i
+ustec    = preset == "USTEC 5m"
+biasLen  = ustec ? 25   : biasLen_i
+tf3      = ustec ? "30" : tf3_i
+momLen   = ustec ? 20   : momLen_i
+volLen   = ustec ? 19   : volLen_i
+minConf  = ustec ? 5    : minConf_i
+minConfS = ustec ? 4    : minConfS_i
+rr2      = ustec ? 3.2  : rr2_i
+rzLen    = ustec ? 28   : rzLen_i
 
 // =============================================================================
 // MODULE 1 — HIGHER-TIMEFRAME BIAS
@@ -790,7 +811,7 @@ if showDash
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v4.1",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, preset == "Manual" ? "v4.2" : preset, bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)

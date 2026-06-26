@@ -63,6 +63,10 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.2.0** — instrument presets:
+  - **Preset dropdown** (`★ Preset`) — `Manual` or `USTEC 5m`. Selecting a preset overrides the key engine parameters with a tuned set; the dashboard badge shows the active preset.
+  - **USTEC 5m** preset values (≈PF 1.36 in testing): biasLen 25, HTF3 30m, RSI 20, volume avg 19, min-conf long 5 / short 4, TP2 3.2R, reversal-zone length 28 (all other params at default).
+  - Implemented via a resolver layer (inputs renamed `*_i`, resolved into the working names), so presets compose cleanly and more pairs can be added with one ternary branch each.
 - **v4.1.0** — tuning controls (from analysing live backtests, e.g. USTEC strong-shorts dragging PF):
   - **Trade-direction filter** — Both / Long only / Short only, to suppress one side on instruments with a structural drift (e.g. indices).
   - **Separate short-side min confluence** (`minConfS`) — raise the bar for shorts independently of longs. Defaults equal to the long threshold, so behaviour is unchanged until adjusted.
