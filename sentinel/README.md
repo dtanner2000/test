@@ -20,13 +20,14 @@ points of interest → wait for price → confirm the reaction → score the set
 
 | Version | Theme        | State          |
 |---------|--------------|----------------|
-| **v1**  | Foundation   | ✅ **Shipped** (`SENTINEL_v1.pine`) |
-| v2      | Execution    | ⏳ planned |
+| **v1**  | Foundation   | ✅ Shipped |
+| **v2**  | Execution    | ✅ **Shipped** (`SENTINEL_v1.pine` — single evolving script) |
 | v3      | Professional | ⏳ planned |
 | v4      | Elite        | ⏳ planned |
 
-### v1 — Foundation (what's in the box)
+### What's in the box
 
+**Foundation (v1):**
 1. **Higher-Timeframe Bias** — Daily / 4H / 2H, each scored bull/bear/flat vs an EMA, summed to a net bias (−3…+3).
 2. **Fair Value Gaps** — automatic bullish/bearish FVG detection, drawn as boxes, with a full mitigation lifecycle (extend → consume → delete/grey-out).
 3. **Liquidity engine** — sweep / stop-hunt detection (wick takes prior swing, closes back inside).
@@ -34,6 +35,13 @@ points of interest → wait for price → confirm the reaction → score the set
 5. **Session intelligence** — Asian / London / New York kill-zone shading + PDH/PDL and PWH/PWL liquidity levels.
 6. **Confirmation filters** — RSI momentum + volume participation, added as confluences (keep both ON).
 7. **Confluence scoring** — dynamic `X/maxConf` long/short score → **Buy/Sell + STRONG** signals, **no-repaint** commit-on-close, alert routing (all/buy/sell/strong), template `alertcondition()`s, and a compact on-chart dashboard.
+
+**Execution (v2):**
+8. **Trade manager** — on each confirmed signal: entry, stop (recent S/R lookback ± ATR buffer), TP1/TP2 (R multiples), drawn as red SL / green TP zones with a dashed TP1 line. Half-and-half management (½ at TP1, ½ runs to TP2).
+9. **Arrow-Way / Smart Exit** — closes the active trade early when an opposite signal fires (yellow `exit` marker).
+10. **Backtest table** — W/L, **win-rate**, P/L, **Profit Factor**, broken down by OVERALL / All BUY / BUY / Strong BUY / All SELL / SELL / Strong SELL, plus an OUTCOMES section (TP1+TP2 / TP1+SL / SL / Exit-BE with count and P/L). Mirrors SPECTRA's layout so you can tune watching PF (aim ≥1.2) and the buy/sell split.
+
+> ⚠️ **The backtest is an indicator-side *simulation*** (½ at TP1, ½ to TP2; stop checked pessimistically before targets within a bar). It's an estimate for tuning — not a broker-accurate fill model. Treat it as directional, not gospel.
 
 > **Golden rule (from the SPECTRA setup video, applies here too):** tune per
 > instrument *and* per timeframe — a BTC 1h config won't suit Gold 4h. Budget a
@@ -44,6 +52,10 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v2.0.0** — Execution release (confirmed v1.1 runs clean on TradingView):
+  - **Trade manager** — entry / stop (S/R lookback ± ATR buffer) / TP1 / TP2 (R multiples), red SL & green TP zones + dashed TP1 line, half-and-half management.
+  - **Arrow-Way / Smart Exit** on opposite signal (yellow `exit` marker).
+  - **Backtest table** — W/L, win-rate, P/L, Profit Factor with BUY/SELL × normal/strong breakdown and an OUTCOMES section (TP1+TP2 / TP1+SL / SL / Exit-BE), mirroring SPECTRA's layout.
 - **v1.1.1** — first compile pass in the Pine Editor:
   - Fixed `CE10235` in the FVG manager (an if/else where one branch returned `box` and the other `void`) — reordered so both branches end on a void call.
   - Shortened `shorttitle` to `SENTINEL` (was 11 chars; the limit is 10).
@@ -90,7 +102,7 @@ time, memory). Trying to generate all of it in one pass produces subtly buggy co
 
 So it's built **in phases**, each compilable and testable before the next is added:
 
-- **v2 — Execution:** dynamic **trade manager** (entry / stop from S/R lookback + buffer / TP1 / TP2, half-and-half management) **+ backtest table** (trades, win-rate, **profit factor**, P&L, buy/sell split, outcome breakdown TP1+TP2 / TP1+SL / SL / BE) — these ship together since the table scores the manager's trades. Plus **Arrow-Way exit** (flip on opposite signal), order-block engine (bull/bear OBs, breakers, mitigation blocks), POI ranking, confidence grade (A+/A/B…).
+- **v2 — Execution:** ✅ done — dynamic trade manager (entry / stop from S/R lookback + buffer / TP1 / TP2, half-and-half) + backtest table (trades, win-rate, profit factor, P&L, buy/sell split, outcomes) + Arrow-Way exit. *(Still candidate for v3: order-block engine, POI ranking, confidence grade A+/A/B.)*
 - **v3 — Professional:** Kalman trend filter, adaptive market-regime classifier (trend / pullback / range / breakout / reversal), multi-symbol scanner, deeper performance analytics.
 - **v4 — Elite:** multi-timeframe confluence matrix, volume-profile / HVN integration, cumulative delta where available, replay/journaling hooks, off-platform parameter optimisation.
 

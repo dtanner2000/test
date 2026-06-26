@@ -1,11 +1,11 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 1.1  —  FOUNDATION
+// Version 2.0  —  EXECUTION
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
-// Modules in this (Foundation) release:
+// Modules:
 //   1. Higher-Timeframe Bias engine        (Daily / 4H / 2H, EMA-trend based)
 //   2. Fair Value Gap (FVG) engine          (detection + mitigation lifecycle)
 //   3. Liquidity engine                     (sweeps / stop-hunts of swings)
@@ -13,19 +13,22 @@
 //   5. Session intelligence                 (Asian / London / NY kill zones)
 //                                           (PDH/PDL + PWH/PWL liquidity levels)
 //   6. Confirmation filters                  (RSI momentum + volume participation)
-//   7. Confluence scoring -> Buy/Sell + STRONG signals, no-repaint commit,
+//   7. Trade manager + backtest             (entry/SL/TP1/TP2, half-and-half mgmt,
+//      Arrow-Way exit, W/L · WR% · P/L · Profit Factor · buy/sell split · outcomes)
+//   +  Confluence scoring -> Buy/Sell + STRONG signals, no-repaint commit,
 //      alert routing (all/buy/sell/strong)   (+ compact on-chart dashboard)
 //
 // NO-REPAINT: with "Lock signals at candle close" ON (default), every signal is
 // committed only on the confirmed candle — historical = what you'd see live.
+// The backtest is an indicator-side SIMULATION (half at TP1, half to TP2); it is
+// an estimate for tuning, not a broker-accurate strategy fill model.
 //
 // Roadmap (NOT in this file yet): order-block engine, confidence grading,
-// dynamic trade manager (entry/stop + TP1/TP2, S/R lookback + buffer),
-// full backtester (PF / WR / buy-sell split / outcomes), Arrow-Way exit,
-// Kalman trend, market-regime classifier, multi-symbol scanner. See README.md.
+// Smart Trail / Trend Cloud / Reversal Zone overlays, Kalman trend,
+// market-regime classifier, multi-symbol scanner. See README.md.
 // =============================================================================
 
-indicator("Project SENTINEL — Foundation v1", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("Project SENTINEL — Execution v2", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // INPUTS
@@ -82,8 +85,22 @@ confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", gro
 alertMode = input.string("All", "Alert on", options = ["All","Buy only","Sell only","Strong only"], group = grpConf)
 showSig   = input.bool(true, "Plot signal markers", group = grpConf)
 
+// --- Trade Manager & Backtest --------------------------------------------------
+grpTM     = "8 · Trade Manager & Backtest"
+enableTM  = input.bool(true,  "Enable trade manager + backtest", group = grpTM)
+showTrades= input.bool(true,  "Draw entry / SL / TP zones", group = grpTM)
+slLook    = input.int(10, "Stop-loss S/R lookback (bars)", minval = 1, group = grpTM, tooltip = "Candles scanned for the recent swing used as the stop.")
+atrLenTM  = input.int(14, "ATR length (stop buffer)", minval = 1, group = grpTM)
+bufMult   = input.float(0.5, "Stop buffer (ATR multiple)", minval = 0.0, step = 0.1, group = grpTM, tooltip = "Extra padding beyond the swing, as a multiple of ATR (wick protection).")
+rr1       = input.float(1.0, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+rr2       = input.float(2.0, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+arrowExit = input.bool(true,  "Arrow-Way exit on opposite signal", group = grpTM, tooltip = "Close the active trade early when an opposite signal fires.")
+keepTrades= input.int(15, "Trade drawings to keep", minval = 1, maxval = 100, group = grpTM)
+showBT    = input.bool(true,  "Show backtest table", group = grpTM)
+btPos     = input.string("Bottom Left", "Backtest table position", options = ["Bottom Left","Bottom Right","Top Left","Top Right","Middle Left"], group = grpTM)
+
 // --- Dashboard -----------------------------------------------------------------
-grpDash   = "8 · Dashboard"
+grpDash   = "9 · Dashboard"
 showDash  = input.bool(true, "Show dashboard", group = grpDash)
 dashPos   = input.string("Top Right", "Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpDash)
 
@@ -301,6 +318,220 @@ alertcondition(longStrong or shortStrong, "SENTINEL Strong only", "SENTINEL stro
 alertcondition(sweepLow or sweepHigh, "SENTINEL Liquidity Sweep", "Liquidity sweep detected")
 
 // =============================================================================
+// MODULE 7 — TRADE MANAGER + BACKTEST
+// =============================================================================
+// Virtual one-trade-at-a-time engine. On a confirmed signal it sets entry, a
+// stop (recent S/R lookback +/- ATR buffer) and TP1/TP2 (R multiples), then
+// tracks the result bar-by-bar with half-and-half management (1/2 at TP1,
+// 1/2 runs to TP2). Outcomes feed the backtest table. This is an indicator-side
+// SIMULATION — it never places orders.
+
+// Stat stores. Category index: 0=BUY 1=Strong BUY 2=SELL 3=Strong SELL
+var array<int>   catWins = array.from(0, 0, 0, 0)
+var array<int>   catLoss = array.from(0, 0, 0, 0)
+var array<float> catGP   = array.from(0.0, 0.0, 0.0, 0.0)   // gross profit
+var array<float> catGL   = array.from(0.0, 0.0, 0.0, 0.0)   // gross loss (stored +)
+// Outcome index: 0=TP1+TP2 1=TP1+SL 2=SL 3=Exit/BE
+var array<int>   outCnt  = array.from(0, 0, 0, 0)
+var array<float> outPL   = array.from(0.0, 0.0, 0.0, 0.0)
+
+f_record(catIdx, outIdx, pl) =>
+    if pl >= 0
+        array.set(catWins, catIdx, array.get(catWins, catIdx) + 1)
+        array.set(catGP,   catIdx, array.get(catGP, catIdx) + pl)
+    else
+        array.set(catLoss, catIdx, array.get(catLoss, catIdx) + 1)
+        array.set(catGL,   catIdx, array.get(catGL, catIdx) - pl)
+    array.set(outCnt, outIdx, array.get(outCnt, outIdx) + 1)
+    array.set(outPL,  outIdx, array.get(outPL,  outIdx) + pl)
+
+// Active-trade state
+var bool  inTrade = false
+var int   tDir    = 0
+var int   tCat    = 0
+var float tEntry  = na
+var float tStop   = na
+var float tTp1    = na
+var float tTp2    = na
+var bool  tTp1Hit = false
+var bool  tDrawn  = false
+var box   aSL     = na
+var box   aTP     = na
+var line  aTP1    = na
+var array<box>  drawBoxes = array.new<box>()
+var array<line> drawLines = array.new<line>()
+
+// ta.* must run every bar (not inside conditionals) for stable history
+atrValTM = ta.atr(atrLenTM)
+lowestN  = ta.lowest(low,  slLook)
+highestN = ta.highest(high, slLook)
+
+bool exitMark = false
+
+if enableTM and barstate.isconfirmed
+    // 1) manage the active trade against this closed candle
+    if inTrade
+        bool closed = false
+        if tDir == 1
+            if low <= tStop
+                if tTp1Hit
+                    f_record(tCat, 1, 0.5 * (tTp1 - tEntry) + 0.5 * (tStop - tEntry))
+                else
+                    f_record(tCat, 2, tStop - tEntry)
+                closed := true
+            else
+                if not tTp1Hit and high >= tTp1
+                    tTp1Hit := true
+                if tTp1Hit and high >= tTp2
+                    f_record(tCat, 0, 0.5 * (tTp1 - tEntry) + 0.5 * (tTp2 - tEntry))
+                    closed := true
+        else
+            if high >= tStop
+                if tTp1Hit
+                    f_record(tCat, 1, 0.5 * (tEntry - tTp1) + 0.5 * (tEntry - tStop))
+                else
+                    f_record(tCat, 2, tEntry - tStop)
+                closed := true
+            else
+                if not tTp1Hit and low <= tTp1
+                    tTp1Hit := true
+                if tTp1Hit and low <= tTp2
+                    f_record(tCat, 0, 0.5 * (tEntry - tTp1) + 0.5 * (tEntry - tTp2))
+                    closed := true
+        if closed
+            inTrade := false
+
+    // 2) Arrow-Way early exit when an opposite signal fires
+    if inTrade and arrowExit and ((tDir == 1 and shortSignal) or (tDir == -1 and longSignal))
+        plE = tDir == 1 ? (tTp1Hit ? 0.5 * (tTp1 - tEntry) + 0.5 * (close - tEntry) : close - tEntry) : (tTp1Hit ? 0.5 * (tEntry - tTp1) + 0.5 * (tEntry - close) : tEntry - close)
+        f_record(tCat, 3, plE)
+        inTrade := false
+        exitMark := true
+
+    // 3) open a new trade if flat and a signal fires
+    if not inTrade and (longSignal or shortSignal)
+        dir = longSignal ? 1 : -1
+        strong = longSignal ? longStrong : shortStrong
+        buf = atrValTM * bufMult
+        rawStop = dir == 1 ? lowestN : highestN
+        entry = close
+        stop = dir == 1 ? rawStop - buf : rawStop + buf
+        r = math.abs(entry - stop)
+        if r > 0
+            inTrade := true
+            tDir := dir
+            tCat := dir == 1 ? (strong ? 1 : 0) : (strong ? 3 : 2)
+            tEntry := entry
+            tStop := stop
+            tTp1 := dir == 1 ? entry + r * rr1 : entry - r * rr1
+            tTp2 := dir == 1 ? entry + r * rr2 : entry - r * rr2
+            tTp1Hit := false
+            tDrawn := false
+            if showTrades
+                aSL := box.new(bar_index, math.max(entry, stop), bar_index, math.min(entry, stop), bgcolor = color.new(color.red, 88), border_color = color.new(color.red, 65))
+                aTP := box.new(bar_index, math.max(entry, tTp2), bar_index, math.min(entry, tTp2), bgcolor = color.new(color.green, 90), border_color = color.new(color.green, 65))
+                aTP1 := line.new(bar_index, tTp1, bar_index, tTp1, color = color.new(color.yellow, 0), style = line.style_dashed)
+                array.push(drawBoxes, aSL)
+                array.push(drawBoxes, aTP)
+                array.push(drawLines, aTP1)
+                tDrawn := true
+                if array.size(drawBoxes) > keepTrades * 2
+                    box.delete(array.shift(drawBoxes))
+                    box.delete(array.shift(drawBoxes))
+                if array.size(drawLines) > keepTrades
+                    line.delete(array.shift(drawLines))
+
+    // 4) extend the active trade's drawings to the current bar
+    if inTrade and tDrawn
+        box.set_right(aSL, bar_index)
+        box.set_right(aTP, bar_index)
+        line.set_x2(aTP1, bar_index)
+
+plotshape(showTrades and exitMark, title = "Smart Exit", style = shape.xcross, location = location.abovebar, color = color.new(color.yellow, 0), size = size.tiny, text = "exit")
+
+// --- Backtest table -----------------------------------------------------------
+f_btPos() =>
+    switch btPos
+        "Bottom Left"  => position.bottom_left
+        "Bottom Right" => position.bottom_right
+        "Top Left"     => position.top_left
+        "Top Right"    => position.top_right
+        "Middle Left"  => position.middle_left
+        => position.bottom_left
+
+f_pf(gp, gl) => gl == 0 ? (gp == 0 ? "—" : "inf") : str.tostring(gp / gl, "#.##")
+f_wr(w, l)   => (w + l) == 0 ? "—" : str.tostring(100.0 * w / (w + l), "#.#") + "%"
+f_pl(net)    => (net >= 0 ? "+" : "") + str.tostring(net, "#.###")
+f_wl(w, l)   => str.tostring(w) + " / " + str.tostring(l)
+
+f_btRow(t, r, dotCol, name, nameCol, w, l, gp, gl, bgc) =>
+    table.cell(t, 0, r, "●", bgcolor = bgc, text_color = dotCol, text_size = size.tiny)
+    table.cell(t, 1, r, name, bgcolor = bgc, text_color = nameCol, text_size = size.tiny)
+    table.cell(t, 2, r, f_wl(w, l), bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+    table.cell(t, 3, r, f_wr(w, l), bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+    table.cell(t, 4, r, f_pl(gp - gl), bgcolor = bgc, text_color = (gp - gl) >= 0 ? color.new(color.green, 0) : color.new(color.red, 0), text_size = size.tiny)
+    table.cell(t, 5, r, f_pf(gp, gl), bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+
+f_btOut(t, r, name, cnt, pl, bgc) =>
+    table.cell(t, 0, r, "", bgcolor = bgc, text_size = size.tiny)
+    table.cell(t, 1, r, name, bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+    table.cell(t, 2, r, str.tostring(cnt), bgcolor = bgc, text_color = color.new(color.white, 0), text_size = size.tiny)
+    table.cell(t, 3, r, "", bgcolor = bgc, text_size = size.tiny)
+    table.cell(t, 4, r, f_pl(pl), bgcolor = bgc, text_color = pl >= 0 ? color.new(color.green, 0) : color.new(color.red, 0), text_size = size.tiny)
+    table.cell(t, 5, r, "", bgcolor = bgc, text_size = size.tiny)
+
+var table bt = na
+if showBT and enableTM
+    if na(bt)
+        bt := table.new(f_btPos(), 6, 13, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+    if barstate.islast
+        allBuyW  = array.get(catWins, 0) + array.get(catWins, 1)
+        allBuyL  = array.get(catLoss, 0) + array.get(catLoss, 1)
+        allBuyGP = array.get(catGP, 0)   + array.get(catGP, 1)
+        allBuyGL = array.get(catGL, 0)   + array.get(catGL, 1)
+        allSellW  = array.get(catWins, 2) + array.get(catWins, 3)
+        allSellL  = array.get(catLoss, 2) + array.get(catLoss, 3)
+        allSellGP = array.get(catGP, 2)   + array.get(catGP, 3)
+        allSellGL = array.get(catGL, 2)   + array.get(catGL, 3)
+        ovW  = allBuyW + allSellW
+        ovL  = allBuyL + allSellL
+        ovGP = allBuyGP + allSellGP
+        ovGL = allBuyGL + allSellGL
+        total = ovW + ovL
+
+        cHd  = color.new(#0b2a4a, 0)
+        cOut = color.new(#3a1f4a, 0)
+        bgc  = color.new(#11151c, 0)
+        wht  = color.new(color.white, 0)
+
+        table.cell(bt, 0, 0, "BT",       bgcolor = cHd, text_color = color.new(color.orange, 0), text_size = size.tiny)
+        table.cell(bt, 1, 0, "½TP1+½TP2",bgcolor = cHd, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 2, 0, "W / L",    bgcolor = cHd, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 3, 0, "WR%",      bgcolor = cHd, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 4, 0, "P/L",      bgcolor = cHd, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 5, 0, "PF",       bgcolor = cHd, text_color = wht, text_size = size.tiny)
+
+        f_btRow(bt, 1, color.new(color.aqua, 0),  "OVERALL " + str.tostring(total), wht, ovW, ovL, ovGP, ovGL, bgc)
+        f_btRow(bt, 2, color.new(color.green, 0), "▲ All BUY",     color.new(color.green, 0), allBuyW, allBuyL, allBuyGP, allBuyGL, bgc)
+        f_btRow(bt, 3, color.new(color.green, 40),"  BUY",         color.new(color.gray, 0), array.get(catWins,0), array.get(catLoss,0), array.get(catGP,0), array.get(catGL,0), bgc)
+        f_btRow(bt, 4, color.new(color.green, 40),"  Strong BUY",  color.new(color.gray, 0), array.get(catWins,1), array.get(catLoss,1), array.get(catGP,1), array.get(catGL,1), bgc)
+        f_btRow(bt, 5, color.new(color.red, 0),   "▼ All SELL",    color.new(color.red, 0), allSellW, allSellL, allSellGP, allSellGL, bgc)
+        f_btRow(bt, 6, color.new(color.red, 40),  "  SELL",        color.new(color.gray, 0), array.get(catWins,2), array.get(catLoss,2), array.get(catGP,2), array.get(catGL,2), bgc)
+        f_btRow(bt, 7, color.new(color.red, 40),  "  Strong SELL", color.new(color.gray, 0), array.get(catWins,3), array.get(catLoss,3), array.get(catGP,3), array.get(catGL,3), bgc)
+
+        table.cell(bt, 0, 8, "",         bgcolor = cOut, text_size = size.tiny)
+        table.cell(bt, 1, 8, "OUTCOMES", bgcolor = cOut, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 2, 8, "Count",    bgcolor = cOut, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 3, 8, "",         bgcolor = cOut, text_size = size.tiny)
+        table.cell(bt, 4, 8, "P/L",      bgcolor = cOut, text_color = wht, text_size = size.tiny)
+        table.cell(bt, 5, 8, "",         bgcolor = cOut, text_size = size.tiny)
+
+        f_btOut(bt, 9,  "TP1 + TP2", array.get(outCnt,0), array.get(outPL,0), bgc)
+        f_btOut(bt, 10, "TP1 + SL",  array.get(outCnt,1), array.get(outPL,1), bgc)
+        f_btOut(bt, 11, "SL",        array.get(outCnt,2), array.get(outPL,2), bgc)
+        f_btOut(bt, 12, "Exit / BE", array.get(outCnt,3), array.get(outPL,3), bgc)
+
+// =============================================================================
 // DASHBOARD
 // =============================================================================
 f_dashPos() =>
@@ -334,7 +565,7 @@ if showDash
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v1.1",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v2.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
