@@ -44,6 +44,9 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v1.1.1** — first compile pass in the Pine Editor:
+  - Fixed `CE10235` in the FVG manager (an if/else where one branch returned `box` and the other `void`) — reordered so both branches end on a void call.
+  - Shortened `shorttitle` to `SENTINEL` (was 11 chars; the limit is 10).
 - **v1.1.0** — folded in lessons from the SPECTRA setup video ([`docs/spectra-setup-notes.md`](docs/spectra-setup-notes.md)):
   - **No-repaint mode** (`Lock signals at candle close`, default ON) — signals/alerts commit only on the confirmed candle.
   - **Momentum (RSI) + volume confirmation filters** — added as confluences (keep both ON); confluence max scales with which filters are enabled (`X/maxConf`).

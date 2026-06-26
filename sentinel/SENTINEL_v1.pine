@@ -25,7 +25,7 @@
 // Kalman trend, market-regime classifier, multi-symbol scanner. See README.md.
 // =============================================================================
 
-indicator("Project SENTINEL — Foundation v1", "SENTINEL v1", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("Project SENTINEL — Foundation v1", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // INPUTS
@@ -181,8 +181,10 @@ f_manageFVG(boxes, isBull) =>
             consumed = isBull ? (low <= bot) : (high >= top)
             if consumed
                 if fvgDelete
-                    box.delete(b)
+                    // remove from array first, then delete the drawing so this
+                    // branch ends on a void call (matches the else branch type).
                     array.remove(boxes, i)
+                    box.delete(b)
                 else
                     box.set_bgcolor(b, color.new(color.gray, 88))
                     box.set_border_color(b, color.new(color.gray, 70))
