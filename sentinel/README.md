@@ -146,8 +146,11 @@ Because a code-baked preset would freeze the overridden inputs, use TradingView'
 spread-only (~0.9 pt). Symbol info: **tick size 0.01, point value 1** → 1 pt = 100
 ticks, so the ~0.9 pt spread ≈ **45 ticks slippage per fill** (commission 0).
 
-**USTEC / NAS100 · 20m** — indicator PF 1.34 (OVERALL 201, 52.2% win). ⚠️ *Tuned on
-the indicator; not yet validated on the costed strategy tester.*
+**USTEC / NAS100 · 20m — ✅ VALIDATED & now the default config in both scripts.**
+Costed strategy tester (DEEP): **3yr +62.1%, PF 1.39, max DD 12.3%, 334 trades**;
+~14mo +53.1%, PF 1.30, DD 12.9% — consistent and far better than 5m (the higher
+timeframe makes the ~0.9 pt spread negligible). Reset either script's settings to
+defaults to load this.
 
 | Section | Input | Value |
 |---|---|---|
