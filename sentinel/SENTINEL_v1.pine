@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 4.0  —  ELITE
+// Version 4.1  —  ELITE
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -84,7 +84,9 @@ volMult   = input.float(1.0, "Volume multiple", minval = 0.1, step = 0.1, group 
 
 // --- Signals & Alerts ----------------------------------------------------------
 grpConf   = "7 · Signals & Alerts"
-minConf   = input.int(3, "Min confluence (normal signal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal signal.")
+dirMode   = input.string("Both", "Trade direction", options = ["Both","Long only","Short only"], group = grpConf, tooltip = "Filter signals by side. Use to suppress one direction on instruments with a structural drift (e.g. indices).")
+minConf   = input.int(3, "Min confluence — long (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal LONG signal.")
+minConfS  = input.int(3, "Min confluence — short (normal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to fire a normal SHORT signal. Raise this independently to cut weak shorts.")
 strongConf= input.int(5, "Min confluence (STRONG signal)", minval = 1, maxval = 9, group = grpConf, tooltip = "Confluences required to upgrade a signal to Strong (higher conviction).")
 confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpConf, tooltip = "When ON, signals/alerts only commit on the closed candle — what you see historically is what you'd have seen live.")
 alertMode = input.string("All", "Alert on", options = ["All","Buy only","Sell only","Strong only"], group = grpConf)
@@ -347,8 +349,10 @@ shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (
 // No-repaint: only commit on the confirmed candle when confirmClose is ON.
 commit = not confirmClose or barstate.isconfirmed
 
-longSignal  = sweepLow  and longConf  >= minConf and commit
-shortSignal = sweepHigh and shortConf >= minConf and commit
+allowLong  = dirMode != "Short only"
+allowShort = dirMode != "Long only"
+longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit
+shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit
 longStrong  = longSignal  and longConf  >= strongConf
 shortStrong = shortSignal and shortConf >= strongConf
 longNormal  = longSignal  and not longStrong
@@ -786,7 +790,7 @@ if showDash
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v4.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v4.1",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
@@ -814,7 +818,7 @@ if showDash
         table.cell(dash, 1, 9, str.tostring(longConf) + "/" + str.tostring(maxConf), bgcolor = bg, text_color = longConf >= minConf ? color.new(color.green,0) : tc, text_size = size.small)
 
         table.cell(dash, 0, 10, "Short conf", bgcolor = bg, text_color = tc, text_size = size.small)
-        table.cell(dash, 1, 10, str.tostring(shortConf) + "/" + str.tostring(maxConf), bgcolor = bg, text_color = shortConf >= minConf ? color.new(color.red,0) : tc, text_size = size.small)
+        table.cell(dash, 1, 10, str.tostring(shortConf) + "/" + str.tostring(maxConf), bgcolor = bg, text_color = shortConf >= minConfS ? color.new(color.red,0) : tc, text_size = size.small)
 
         table.cell(dash, 0, 11, "Signal", bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 11, sigTxt, bgcolor = bg, text_color = sigCol, text_size = size.small)

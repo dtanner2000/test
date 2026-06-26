@@ -63,6 +63,9 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.1.0** — tuning controls (from analysing live backtests, e.g. USTEC strong-shorts dragging PF):
+  - **Trade-direction filter** — Both / Long only / Short only, to suppress one side on instruments with a structural drift (e.g. indices).
+  - **Separate short-side min confluence** (`minConfS`) — raise the bar for shorts independently of longs. Defaults equal to the long threshold, so behaviour is unchanged until adjusted.
 - **v4.0.0** — Elite release (confirmed v3.0 runs clean on TradingView):
   - **Kalman trend filter** — 1-D Kalman on price, added as an optional confluence (max becomes 8) and plottable.
   - **Market-regime classifier** — Trend / Range / Breakout / Reversal from ADX + ATR expansion + structure + reversal zones.
