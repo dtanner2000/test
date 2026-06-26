@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 2.0  —  EXECUTION
+// Version 3.0  —  PROFESSIONAL
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -15,20 +15,21 @@
 //   6. Confirmation filters                  (RSI momentum + volume participation)
 //   7. Trade manager + backtest             (entry/SL/TP1/TP2, half-and-half mgmt,
 //      Arrow-Way exit, W/L · WR% · P/L · Profit Factor · buy/sell split · outcomes)
-//   +  Confluence scoring -> Buy/Sell + STRONG signals, no-repaint commit,
-//      alert routing (all/buy/sell/strong)   (+ compact on-chart dashboard)
+//   8. Order-block engine                    (demand/supply OBs + mitigation/breakers)
+//   9. Overlays (visual only, default OFF)   (Smart Trail / Trend Cloud / Reversal Zones)
+//   +  Confluence scoring -> Buy/Sell + STRONG signals + A+/A/B confidence grade,
+//      no-repaint commit, alert routing      (+ compact on-chart dashboard)
 //
 // NO-REPAINT: with "Lock signals at candle close" ON (default), every signal is
 // committed only on the confirmed candle — historical = what you'd see live.
 // The backtest is an indicator-side SIMULATION (half at TP1, half to TP2); it is
 // an estimate for tuning, not a broker-accurate strategy fill model.
 //
-// Roadmap (NOT in this file yet): order-block engine, confidence grading,
-// Smart Trail / Trend Cloud / Reversal Zone overlays, Kalman trend,
+// Roadmap (NOT in this file yet): POI ranking, Kalman trend filter,
 // market-regime classifier, multi-symbol scanner. See README.md.
 // =============================================================================
 
-indicator("Project SENTINEL — Execution v2", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+indicator("Project SENTINEL — Professional v3", "SENTINEL", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // INPUTS
@@ -103,6 +104,27 @@ btPos     = input.string("Bottom Left", "Backtest table position", options = ["B
 grpDash   = "9 · Dashboard"
 showDash  = input.bool(true, "Show dashboard", group = grpDash)
 dashPos   = input.string("Top Right", "Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpDash)
+
+// --- Order Blocks --------------------------------------------------------------
+grpOB     = "10 · Order Blocks"
+showOB    = input.bool(true, "Show order blocks", group = grpOB)
+obSearch  = input.int(15, "OB search lookback (bars)", minval = 1, group = grpOB, tooltip = "Bars scanned back from a structure break to find the originating candle.")
+obMax     = input.int(5, "Max order blocks per side", minval = 1, maxval = 30, group = grpOB)
+obDelete  = input.bool(false, "Delete OB when broken (else mark as breaker)", group = grpOB)
+colBullOB = input.color(color.new(color.green, 80), "Bullish OB (demand)", group = grpOB, inline = "obc")
+colBearOB = input.color(color.new(color.red,   80), "Bearish OB (supply)", group = grpOB, inline = "obc")
+
+// --- Overlays (visual only) ----------------------------------------------------
+grpOv     = "11 · Overlays (visual only)"
+showTrail = input.bool(false, "Smart Trail", group = grpOv, tooltip = "ATR trailing stop that flips with trend.")
+trailLen  = input.int(10, "Smart Trail ATR length", minval = 1, group = grpOv)
+trailMult = input.float(3.0, "Smart Trail ATR multiple", minval = 0.1, step = 0.1, group = grpOv)
+showCloud = input.bool(false, "Trend Cloud", group = grpOv, tooltip = "Fast vs slow EMA fill showing trend direction.")
+tcFast    = input.int(20, "Cloud fast EMA", minval = 1, group = grpOv)
+tcSlow    = input.int(50, "Cloud slow EMA", minval = 1, group = grpOv)
+showRZ    = input.bool(false, "Reversal Zones", group = grpOv, tooltip = "VWMA +/- deviation bands marking statistically stretched price.")
+rzLen     = input.int(20, "Reversal Zone length", minval = 1, group = grpOv)
+rzMult    = input.float(2.0, "Reversal Zone deviation", minval = 0.1, step = 0.1, group = grpOv)
 
 // =============================================================================
 // MODULE 1 — HIGHER-TIMEFRAME BIAS
@@ -532,6 +554,94 @@ if showBT and enableTM
         f_btOut(bt, 12, "Exit / BE", array.get(outCnt,3), array.get(outPL,3), bgc)
 
 // =============================================================================
+// MODULE 8 — ORDER BLOCKS (demand / supply, with mitigation + breakers)
+// =============================================================================
+// An order block is the last opposite-colour candle before a structure break:
+//   bullish OB (demand)  = last bearish candle before an up break (BOS/CHoCH up)
+//   bearish OB (supply)  = last bullish candle before a down break
+// When price closes through an OB it is "broken" -> becomes a breaker.
+
+f_lastOpp(searchN, wantBull) =>
+    int found = na
+    for k = 1 to searchN
+        match = wantBull ? close[k] > open[k] : close[k] < open[k]
+        if match and na(found)
+            found := k
+    found
+
+var array<box> bullOB = array.new<box>()
+var array<box> bearOB = array.new<box>()
+
+bullBreak = bosUpEvt or chochUp
+bearBreak = bosDnEvt or chochDn
+
+if showOB and barstate.isconfirmed
+    if bullBreak
+        ko = f_lastOpp(obSearch, false)
+        if not na(ko)
+            ob = box.new(bar_index - ko, high[ko], bar_index + 3, low[ko], bgcolor = colBullOB, border_color = color.new(color.green, 50))
+            array.push(bullOB, ob)
+            if array.size(bullOB) > obMax
+                box.delete(array.shift(bullOB))
+    if bearBreak
+        ko = f_lastOpp(obSearch, true)
+        if not na(ko)
+            ob = box.new(bar_index - ko, high[ko], bar_index + 3, low[ko], bgcolor = colBearOB, border_color = color.new(color.red, 50))
+            array.push(bearOB, ob)
+            if array.size(bearOB) > obMax
+                box.delete(array.shift(bearOB))
+
+f_manageOB(boxes, isBull) =>
+    if array.size(boxes) > 0
+        for i = array.size(boxes) - 1 to 0
+            b = array.get(boxes, i)
+            box.set_right(b, bar_index + 3)
+            broken = isBull ? close < box.get_bottom(b) : close > box.get_top(b)
+            if broken
+                if obDelete
+                    array.remove(boxes, i)
+                    box.delete(b)
+                else
+                    box.set_bgcolor(b, color.new(color.orange, 82))
+                    box.set_border_color(b, color.new(color.orange, 50))
+
+if showOB
+    f_manageOB(bullOB, true)
+    f_manageOB(bearOB, false)
+
+// =============================================================================
+// MODULE 9 — OVERLAYS (visual only; default OFF)
+// =============================================================================
+// Smart Trail — ATR trailing stop (Supertrend-style), flips with trend.
+atrTrail = ta.atr(trailLen)
+upBand = hl2 - trailMult * atrTrail
+dnBand = hl2 + trailMult * atrTrail
+var float stUp  = na
+var float stDn  = na
+var int   stDir = 1
+stUp := na(stUp[1]) ? upBand : (close[1] > stUp[1] ? math.max(upBand, stUp[1]) : upBand)
+stDn := na(stDn[1]) ? dnBand : (close[1] < stDn[1] ? math.min(dnBand, stDn[1]) : dnBand)
+stDir := stDir == -1 and close > stDn[1] ? 1 : stDir == 1 and close < stUp[1] ? -1 : stDir
+trailVal = stDir == 1 ? stUp : stDn
+plot(showTrail ? trailVal : na, "Smart Trail", color = stDir == 1 ? color.new(color.green, 0) : color.new(color.red, 0), linewidth = 2, style = plot.style_linebr)
+
+// Trend Cloud — fast vs slow EMA fill.
+emaFast = ta.ema(close, tcFast)
+emaSlow = ta.ema(close, tcSlow)
+pCloudF = plot(showCloud ? emaFast : na, "Cloud fast", color = color.new(color.blue, 50))
+pCloudS = plot(showCloud ? emaSlow : na, "Cloud slow", color = color.new(color.gray, 50))
+fill(pCloudF, pCloudS, color = emaFast > emaSlow ? color.new(color.green, 88) : color.new(color.red, 88), title = "Trend Cloud")
+
+// Reversal Zones — VWMA +/- deviation bands.
+rzBasis = ta.vwma(close, rzLen)
+rzDev = rzMult * ta.stdev(close, rzLen)
+rzUp = rzBasis + rzDev
+rzLo = rzBasis - rzDev
+pRzU = plot(showRZ ? rzUp : na, "Reversal upper", color = color.new(color.red, 55))
+pRzL = plot(showRZ ? rzLo : na, "Reversal lower", color = color.new(color.green, 55))
+fill(pRzU, pRzL, color = color.new(color.purple, 93), title = "Reversal Zone")
+
+// =============================================================================
 // DASHBOARD
 // =============================================================================
 f_dashPos() =>
@@ -546,6 +656,12 @@ f_dashPos() =>
 f_biasTxt(v) => v > 0 ? "▲ Bull" : v < 0 ? "▼ Bear" : "— Flat"
 f_biasCol(v) => v > 0 ? color.new(color.green, 0) : v < 0 ? color.new(color.red, 0) : color.new(color.gray, 0)
 
+// Confidence grade from a confluence score vs its max
+f_grade(conf, mx) =>
+    p = mx == 0 ? 0.0 : 1.0 * conf / mx
+    p >= 1.0 ? "A+" : p >= 0.85 ? "A" : p >= 0.7 ? "B" : p >= 0.5 ? "C" : "D"
+f_gradeCol(g) => g == "A+" ? color.new(color.lime, 0) : g == "A" ? color.new(color.green, 0) : g == "B" ? color.new(color.yellow, 0) : g == "C" ? color.new(color.orange, 0) : color.new(color.gray, 0)
+
 sessTxt = inLondon ? "London KZ" : inNY ? "New York KZ" : inAsian ? "Asian" : "Off-session"
 sessCol = inKillZone ? color.new(color.green, 0) : color.new(color.gray, 0)
 
@@ -555,17 +671,19 @@ volTxt = not enableVol ? "off" : volSpike ? "High" : "Normal"
 volCol = not enableVol ? color.new(color.gray, 0) : volSpike ? color.new(color.green, 0) : color.new(color.gray, 0)
 sigTxt = longStrong ? "STRONG BUY" : longSignal ? "BUY" : shortStrong ? "STRONG SELL" : shortSignal ? "SELL" : "—"
 sigCol = longSignal ? color.new(color.green, 0) : shortSignal ? color.new(color.red, 0) : color.new(color.gray, 0)
+actConf  = math.max(longConf, shortConf)
+gradeTxt = f_grade(actConf, maxConf)
 
 var table dash = na
 if showDash
     if na(dash)
-        dash := table.new(f_dashPos(), 2, 12, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+        dash := table.new(f_dashPos(), 2, 13, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
     if barstate.islast
         bg = color.new(#11151c, 0)
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, "v2.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, "v3.0",             bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
@@ -597,6 +715,9 @@ if showDash
 
         table.cell(dash, 0, 11, "Signal", bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 11, sigTxt, bgcolor = bg, text_color = sigCol, text_size = size.small)
+
+        table.cell(dash, 0, 12, "Grade", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 12, gradeTxt + " (" + str.tostring(actConf) + "/" + str.tostring(maxConf) + ")", bgcolor = bg, text_color = f_gradeCol(gradeTxt), text_size = size.small)
 // =============================================================================
-// END OF FOUNDATION v1
+// END OF SENTINEL
 // =============================================================================

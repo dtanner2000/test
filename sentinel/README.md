@@ -21,8 +21,8 @@ points of interest → wait for price → confirm the reaction → score the set
 | Version | Theme        | State          |
 |---------|--------------|----------------|
 | **v1**  | Foundation   | ✅ Shipped |
-| **v2**  | Execution    | ✅ **Shipped** (`SENTINEL_v1.pine` — single evolving script) |
-| v3      | Professional | ⏳ planned |
+| **v2**  | Execution    | ✅ Shipped |
+| **v3**  | Professional | ✅ **Shipped** (`SENTINEL_v1.pine` — single evolving script) |
 | v4      | Elite        | ⏳ planned |
 
 ### What's in the box
@@ -43,6 +43,11 @@ points of interest → wait for price → confirm the reaction → score the set
 
 > ⚠️ **The backtest is an indicator-side *simulation*** (½ at TP1, ½ to TP2; stop checked pessimistically before targets within a bar). It's an estimate for tuning — not a broker-accurate fill model. Treat it as directional, not gospel.
 
+**Professional (v3):**
+11. **Order-block engine** — demand/supply OBs auto-detected as the last opposite-colour candle before a structure break, drawn as zones with a mitigation lifecycle; when price closes through an OB it flips to a **breaker** (orange) or is deleted.
+12. **Confidence grade** — the active confluence score is mapped to an **A+ / A / B / C / D** grade, shown in the dashboard.
+13. **Visual overlays** (default OFF, enable when comfortable) — **Smart Trail** (ATR trailing stop), **Trend Cloud** (fast/slow EMA fill), **Reversal Zones** (VWMA ± deviation bands).
+
 > **Golden rule (from the SPECTRA setup video, applies here too):** tune per
 > instrument *and* per timeframe — a BTC 1h config won't suit Gold 4h. Budget a
 > few minutes to dial in sensitivity (pivot length, confluence thresholds,
@@ -52,6 +57,10 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v3.0.0** — Professional release (confirmed v2.0 runs clean on TradingView):
+  - **Order-block engine** — demand/supply zones from the last opposite candle before a structure break, with mitigation + breaker lifecycle.
+  - **Confidence grade** — A+/A/B/C/D from the confluence score, shown in the dashboard.
+  - **Overlays** (default OFF) — Smart Trail (ATR trailing stop), Trend Cloud (EMA fill), Reversal Zones (VWMA ± deviation bands).
 - **v2.0.0** — Execution release (confirmed v1.1 runs clean on TradingView):
   - **Trade manager** — entry / stop (S/R lookback ± ATR buffer) / TP1 / TP2 (R multiples), red SL & green TP zones + dashed TP1 line, half-and-half management.
   - **Arrow-Way / Smart Exit** on opposite signal (yellow `exit` marker).
@@ -102,7 +111,8 @@ time, memory). Trying to generate all of it in one pass produces subtly buggy co
 
 So it's built **in phases**, each compilable and testable before the next is added:
 
-- **v2 — Execution:** ✅ done — dynamic trade manager (entry / stop from S/R lookback + buffer / TP1 / TP2, half-and-half) + backtest table (trades, win-rate, profit factor, P&L, buy/sell split, outcomes) + Arrow-Way exit. *(Still candidate for v3: order-block engine, POI ranking, confidence grade A+/A/B.)*
+- **v2 — Execution:** ✅ done — trade manager + backtest table + Arrow-Way exit.
+- **v3 — Professional:** ✅ done — order-block engine, confidence grade (A+/A/B), Smart Trail / Trend Cloud / Reversal Zone overlays. *(Still candidate for v4: POI ranking, Kalman trend.)*
 - **v3 — Professional:** Kalman trend filter, adaptive market-regime classifier (trend / pullback / range / breakout / reversal), multi-symbol scanner, deeper performance analytics.
 - **v4 — Elite:** multi-timeframe confluence matrix, volume-profile / HVN integration, cumulative delta where available, replay/journaling hooks, off-platform parameter optimisation.
 
