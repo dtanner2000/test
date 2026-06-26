@@ -137,8 +137,8 @@ if showBOS
 bullFVG = low > high[2]
 bearFVG = high < low[2]
 
-var box[] bullBoxes = array.new<box>()
-var box[] bearBoxes = array.new<box>()
+var array<box> bullBoxes = array.new<box>()
+var array<box> bearBoxes = array.new<box>()
 
 if showFVG and barstate.isconfirmed
     if bullFVG
@@ -173,21 +173,35 @@ if showFVG
     f_manageFVG(bullBoxes, true)
     f_manageFVG(bearBoxes, false)
 
-// "Fresh bullish FVG present" flag for confluence (any live bull box this bar)
-bullFVGlive = array.size(bullBoxes) > 0
-bearFVGlive = array.size(bearBoxes) > 0
+// Confluence flag: is price currently interacting with a live FVG zone?
+// (a bar overlaps a box when its range crosses the box's top/bottom)
+f_priceInZone(boxes) =>
+    bool hit = false
+    if array.size(boxes) > 0
+        for i = 0 to array.size(boxes) - 1
+            b = array.get(boxes, i)
+            if low <= box.get_top(b) and high >= box.get_bottom(b)
+                hit := true
+    hit
+
+bullFVGtap = f_priceInZone(bullBoxes)
+bearFVGtap = f_priceInZone(bearBoxes)
 
 // =============================================================================
 // MODULE 4 — LIQUIDITY SWEEPS / STOP-HUNTS
 // =============================================================================
 // Sweep of lows  (bullish): wick takes out prior swing low, closes back above.
 // Sweep of highs (bearish): wick takes out prior swing high, closes back below.
-sweepLow  = showSweep and not na(lastSwingLow)  and low  < lastSwingLow  and close > lastSwingLow
-sweepHigh = showSweep and not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+// Detection is independent of the display toggle so confluence still counts it.
+sweepLowRaw  = not na(lastSwingLow)  and low  < lastSwingLow  and close > lastSwingLow
+sweepHighRaw = not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+// Fire once per fresh sweep (don't repeat while the wick stays beyond the swing).
+sweepLow  = sweepLowRaw  and not sweepLowRaw[1]
+sweepHigh = sweepHighRaw and not sweepHighRaw[1]
 
-if sweepLow
+if showSweep and sweepLow
     label.new(bar_index, low,  "✦ swept", yloc = yloc.belowbar, color = color.new(color.aqua, 20), style = label.style_label_up,   textcolor = color.black, size = size.tiny)
-if sweepHigh
+if showSweep and sweepHigh
     label.new(bar_index, high, "✦ swept", yloc = yloc.abovebar, color = color.new(color.fuchsia, 20), style = label.style_label_down, textcolor = color.white, size = size.tiny)
 
 // =============================================================================
@@ -221,8 +235,8 @@ plot(showLevels ? pwl : na, "PWL", color = color.new(color.green, 40), style = p
 // 5 confluences each for long and short. A signal needs >= minConf AND a sweep
 // trigger this bar (price has come to liquidity and reacted).
 
-longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0) + (sweepLow ? 1 : 0)  + (bullFVGlive ? 1 : 0) + (inKillZone ? 1 : 0)
-shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGlive ? 1 : 0) + (inKillZone ? 1 : 0)
+longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0) + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0)
+shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0)
 
 longSignal  = sweepLow  and longConf  >= minConf
 shortSignal = sweepHigh and shortConf >= minConf

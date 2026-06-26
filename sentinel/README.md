@@ -36,6 +36,15 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ---
 
+## Changelog
+
+- **v1.0.1** — refinements after first review:
+  - FVG confluence now requires price to be **interacting with a live FVG zone**, not merely that one exists somewhere on the chart.
+  - Liquidity sweeps fire **once per fresh sweep** (no repeat while the wick stays beyond the swing) — applies to labels, signals and alerts.
+  - Sweep *detection* decoupled from the *display* toggle, so hiding sweep labels no longer silently drops the sweep confluence.
+  - Note: hiding FVGs (`Show FVGs` off) disables the FVG confluence, since zones are only tracked when drawn.
+- **v1.0.0** — initial Foundation release.
+
 ## Install
 
 1. Open **TradingView → Chart → Pine Editor**.
