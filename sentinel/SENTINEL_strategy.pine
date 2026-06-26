@@ -36,7 +36,7 @@ strategy("SENTINEL Strategy — Execution", "SENTINELST", overlay = true, initia
 // RISK & COSTS
 // =============================================================================
 grpRisk  = "Risk"
-riskPct  = input.float(1.5, "Risk per trade (%)", minval = 0.0, step = 0.1, group = grpRisk, tooltip = "Position size is computed so a full stop-out loses this % of the risk base.")
+riskPct  = input.float(1.8, "Risk per trade (%)", minval = 0.0, step = 0.1, group = grpRisk, tooltip = "Position size is computed so a full stop-out loses this % of the risk base.")
 compound = input.bool(false, "Compound (use live equity)", group = grpRisk, tooltip = "Off = risk % of the starting capital (constant $ risk). On = risk % of current equity.")
 // NOTE: set commission & slippage in the Strategy Tester > Properties tab to
 // match your broker. USTEC/NAS100 on IC Markets is spread-only (~0.9 pt).
@@ -45,13 +45,13 @@ compound = input.bool(false, "Compound (use live equity)", group = grpRisk, tool
 // SIGNAL INPUTS  (defaults locked to tuned USTEC 5m config)
 // =============================================================================
 grpBias   = "1 · HTF Bias"
-biasLen   = input.int(120, "Bias EMA length", minval = 2, group = grpBias)
-tf1       = input.timeframe("W",   "HTF 1", group = grpBias)
-tf2       = input.timeframe("D",   "HTF 2", group = grpBias)
-tf3       = input.timeframe("120", "HTF 3", group = grpBias)
+biasLen   = input.int(101, "Bias EMA length", minval = 2, group = grpBias)
+tf1       = input.timeframe("M",   "HTF 1", group = grpBias)
+tf2       = input.timeframe("2W",  "HTF 2", group = grpBias)
+tf3       = input.timeframe("W",   "HTF 3", group = grpBias)
 
 grpStruct = "2 · Structure"
-pivotLen  = input.int(10, "Swing pivot length", minval = 1, group = grpStruct)
+pivotLen  = input.int(5, "Swing pivot length", minval = 1, group = grpStruct)
 
 grpFVG    = "3 · Fair Value Gaps"
 fvgMax    = input.int(6, "Max FVGs kept per side", minval = 1, maxval = 50, group = grpFVG)
@@ -65,9 +65,9 @@ nySess    = input.session("0830-1100", "New York kill zone", group = grpSess)
 
 grpFilt   = "5 · Confirmation"
 enableMom = input.bool(true, "Momentum (RSI) filter", group = grpFilt)
-momLen    = input.int(20, "RSI length", minval = 2, group = grpFilt)
+momLen    = input.int(13, "RSI length", minval = 2, group = grpFilt)
 momThresh = input.int(50, "RSI bull/bear threshold", minval = 1, maxval = 99, group = grpFilt)
-enableVol = input.bool(true, "Volume filter", group = grpFilt)
+enableVol = input.bool(false, "Volume filter", group = grpFilt)
 volLen    = input.int(22, "Volume average length", minval = 2, group = grpFilt)
 volMult   = input.float(1.0, "Volume multiple", minval = 0.1, step = 0.1, group = grpFilt)
 enableKal = input.bool(true, "Kalman trend filter", group = grpFilt)
@@ -77,24 +77,24 @@ kR        = input.float(0.10, "Kalman measurement noise", minval = 0.001, step =
 grpSig    = "6 · Signals"
 dirMode   = input.string("Both", "Trade direction", options = ["Both","Long only","Short only"], group = grpSig)
 minConf   = input.int(4, "Min confluence — long", minval = 1, maxval = 9, group = grpSig)
-minConfS  = input.int(5, "Min confluence — short", minval = 1, maxval = 9, group = grpSig)
+minConfS  = input.int(4, "Min confluence — short", minval = 1, maxval = 9, group = grpSig)
 strongConf= input.int(5, "Min confluence (STRONG)", minval = 1, maxval = 9, group = grpSig)
 confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpSig)
 
 grpTM     = "7 · Trade Management"
-slLook    = input.int(10, "Stop-loss S/R lookback (bars)", minval = 1, group = grpTM)
-atrLenTM  = input.int(4, "ATR length (stop buffer)", minval = 1, group = grpTM)
-bufMult   = input.float(1.3, "Stop buffer (ATR multiple)", minval = 0.0, step = 0.1, group = grpTM)
-rr1       = input.float(1.0, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
-rr2       = input.float(3.0, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+slLook    = input.int(15, "Stop-loss S/R lookback (bars)", minval = 1, group = grpTM)
+atrLenTM  = input.int(14, "ATR length (stop buffer)", minval = 1, group = grpTM)
+bufMult   = input.float(0.5, "Stop buffer (ATR multiple)", minval = 0.0, step = 0.1, group = grpTM)
+rr1       = input.float(1.6, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+rr2       = input.float(3.2, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
 arrowExit = input.bool(true, "Arrow-Way exit (reverse on opposite signal)", group = grpTM)
 showSig   = input.bool(true, "Plot signal markers", group = grpTM)
 
 grpRob    = "8 · Robustness & Exit"
 exitMode  = input.string("Fixed TP1/TP2", "Exit mode", options = ["Fixed TP1/TP2","Smart Trail"], group = grpRob, tooltip = "Fixed = 1/2 at TP1, 1/2 at TP2. Smart Trail = 1/2 at TP1, rest rides an ATR trailing stop (lets winners run).")
-trailLen  = input.int(10, "Smart Trail ATR length", minval = 1, group = grpRob)
+trailLen  = input.int(35, "Smart Trail ATR length", minval = 1, group = grpRob)
 trailMult = input.float(3.0, "Smart Trail ATR multiple", minval = 0.1, step = 0.1, group = grpRob)
-reqHTF    = input.bool(false, "Filter: require HTF bias alignment", group = grpRob, tooltip = "Only longs when net bias is bullish, only shorts when bearish (no counter-trend).")
+reqHTF    = input.bool(true, "Filter: require HTF bias alignment", group = grpRob, tooltip = "Only longs when net bias is bullish, only shorts when bearish (no counter-trend).")
 kzOnly    = input.bool(false, "Filter: trade only in kill zones", group = grpRob, tooltip = "Only take signals during London/NY kill zones.")
 minADX    = input.float(0.0, "Filter: min ADX (0 = off)", minval = 0.0, group = grpRob, tooltip = "Skip low-trend (range/chop) conditions. Try 18-22.")
 adxLen    = input.int(14, "ADX length", minval = 1, group = grpRob)

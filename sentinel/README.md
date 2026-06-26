@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.7.0** — re-baked both scripts' default inputs to the **12-year validated USTEC 20m config** (PF 1.149, 2,804 trades): biasLen 101, HTF 1M/2W/1W, pivot 5, RSI 13, volume filter off, conf 4/4/5, SL 15 / ATR 14 / buffer 0.5, TP1 1.6 / TP2 3.2; strategy adds risk 1.8% + HTF-bias-alignment filter ON. "Reset settings to defaults" now loads it.
 - **v4.6.0** — strategy robustness toolkit: **Smart Trail** exit mode (½ TP1, rest trails an ATR stop), entry **filters** (require HTF bias alignment / kill-zones only / min-ADX), and **risk caps** (daily-loss limit %, max-drawdown halt %). Added HTF-per-timeframe guidance for testing higher timeframes.
 - **v4.5.0** — added **`SENTINEL_strategy.pine`** for forward testing: same signal engine, executed via `strategy.*` so the native Strategy Tester gives broker-accurate stats and can drive paper/live via alerts. Risk 1.5%/trade on $50k, ½TP1/½TP2 + shared stop, Arrow-Way reversal, orders on bar close. Recorded the locked USTEC 5m config (≈PF 1.41) in *Tuned configs*.
 - **v4.4.0** — **removed the code-baked preset system** (reverting v4.2). A Pine preset works by *overriding* inputs in code, which makes those input boxes dead/non-responsive while a preset is active — confusing and easy to mistake for a bug. All inputs are now always live again. Save per-instrument configs with TradingView's **native** "Save as Default" / chart-layout-per-symbol instead (see *Saving tuned configs* below). The USTEC 5m values are preserved in this README.
@@ -173,9 +174,9 @@ that's a favourable recent stretch).
 drift capture, so expect degradation in a prolonged bear regime. Costs: slippage
 45 ticks, commission 0, margin 1%.
 
-> Note: the code *defaults* still hold an earlier intermediate 20m config (biasLen
-> 120, HTF W/D/2H). Ask to re-bake defaults to this 12-year config if you want
-> "Reset settings" to load it.
+> Both scripts now **default to this 12-year config** — "Reset settings to defaults"
+> loads it one-click. (Strategy-only inputs — risk 1.8%, HTF-align filter ON — live
+> in the strategy file; the indicator carries the shared signal values.)
 
 ### Forward-test results (USTEC 5m, strategy, DEEP)
 
