@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.5.0** — added **`SENTINEL_strategy.pine`** for forward testing: same signal engine, executed via `strategy.*` so the native Strategy Tester gives broker-accurate stats and can drive paper/live via alerts. Risk 1.5%/trade on $50k, ½TP1/½TP2 + shared stop, Arrow-Way reversal, orders on bar close. Recorded the locked USTEC 5m config (≈PF 1.41) in *Tuned configs*.
 - **v4.4.0** — **removed the code-baked preset system** (reverting v4.2). A Pine preset works by *overriding* inputs in code, which makes those input boxes dead/non-responsive while a preset is active — confusing and easy to mistake for a bug. All inputs are now always live again. Save per-instrument configs with TradingView's **native** "Save as Default" / chart-layout-per-symbol instead (see *Saving tuned configs* below). The USTEC 5m values are preserved in this README.
 - **v4.3.0** — cleaner signal markers (SPECTRA-style): normal signals are now small triangles, strong signals are compact `BUY+` / `SELL+` pills (replacing the bulky "STRONG" text).
 - **v4.2.0** — instrument presets:
@@ -117,19 +118,32 @@ Because a code-baked preset would freeze the overridden inputs, use TradingView'
 
 ### Tuned configs (record)
 
-**USTEC / NAS100 · 5m** (≈ Profit Factor 1.36 in testing; all other inputs at default):
+**USTEC / NAS100 · 5m — LOCKED** (≈ Profit Factor 1.41 in testing). Full input list:
 
-| Input | Value |
-|---|---|
-| Bias EMA length | 25 |
-| HTF 1 / 2 / 3 | 1D / 4H / 30m |
-| RSI length | 20 |
-| Volume average length | 19 |
-| Min confluence — long | 5 |
-| Min confluence — short | 4 |
-| Min confluence (STRONG) | 5 |
-| TP2 (R multiple) | 3.2 |
-| Reversal Zone length | 28 |
+| Section | Input | Value |
+|---|---|---|
+| HTF Bias | Bias EMA length | 25 |
+| | HTF 1 / 2 / 3 | 1D / 4H / 30m |
+| Structure | Swing pivot length | 8 |
+| FVG | Max FVGs / delete when mitigated | 6 / on |
+| Sessions | Timezone | America/New_York |
+| | Asian / London / NY kill zones | 20:00–00:00 / 02:00–05:00 / 08:30–11:00 |
+| Confirmation | RSI length / threshold | 20 / 50 |
+| | Volume average length / multiple | 21 / 1 |
+| | Kalman (process / measurement noise) | on (0.01 / 0.10) |
+| Signals | Trade direction | Both |
+| | Min confluence — long / short / STRONG | 5 / 4 / 5 |
+| | Lock signals at candle close | on |
+| Trade mgmt | Stop-loss S/R lookback | 15 |
+| | ATR length / stop buffer | 14 / 0.5 |
+| | TP1 / TP2 (R) | 1 / 3.2 |
+| | Arrow-Way exit | on |
+| Order Blocks | OB search lookback / max per side | 16 / 5 |
+| Overlays | Reversal Zones / length / deviation | on / 30 / 2 |
+
+**Risk (strategy):** 1.5% per trade on $50k. **Costs:** USTEC on IC Markets is
+spread-only (~0.9 pt); commission 0, set slippage to taste in the Strategy
+Tester *Properties* tab.
 
 > Note: TradingView backtest numbers shift between sessions with the amount of
 > loaded history — compare configs with the same bars loaded.
@@ -175,8 +189,26 @@ So it's built **in phases**, each compilable and testable before the next is add
 
 ```
 sentinel/
-├── SENTINEL_v1.pine     # Foundation release — paste into TradingView
-├── README.md            # this file
+├── SENTINEL_v1.pine        # the indicator — visuals, dashboard, signals (paste as Indicator)
+├── SENTINEL_strategy.pine  # the strategy — same signals, executes via strategy.* (paste as Strategy)
+├── README.md               # this file
 └── docs/
-    └── background.md     # the SentioEdge/SPECTRA review that motivated the design
+    ├── background.md           # the SentioEdge/SPECTRA review that motivated the design
+    └── spectra-setup-notes.md  # SPECTRA setup-video notes used as design input
 ```
+
+## Forward testing
+
+Use `SENTINEL_strategy.pine` for out-of-sample testing — it mirrors the
+indicator's signal engine but runs through TradingView's **Strategy Tester**
+(realistic fills, commission, slippage) and keeps updating as new live bars
+arrive (a rolling forward test once inputs are locked).
+
+1. Pine Editor → paste `SENTINEL_strategy.pine` → **Add to chart** (it loads as a strategy).
+2. Strategy Tester tab → read PF, win-rate, max drawdown, equity curve.
+3. **Properties** tab → set commission & slippage to your broker (USTEC ≈ spread-only, ~0.9 pt).
+4. For paper/live: create an alert on the strategy → condition **"Any alert() function call"** → point the webhook at your paper broker.
+
+Execution model: 1.5% risk per trade (full-stop loss = 1.5% of the risk base),
+½ closes at TP1, ½ runs to TP2 (shared stop), opposite signal reverses
+(Arrow-Way), orders fill on bar close (non-repainting).

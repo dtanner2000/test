@@ -1,0 +1,267 @@
+//@version=6
+// =============================================================================
+// PROJECT SENTINEL — STRATEGY  (forward-test / execution version)
+// -----------------------------------------------------------------------------
+// Mirrors the SENTINEL indicator's SIGNAL ENGINE exactly, but executes via
+// strategy.* so TradingView's Strategy Tester gives broker-accurate results
+// (commission, slippage, real fills) and can drive paper/live trading through
+// alerts ("Any alert() function call" or the strategy's order-fill alerts).
+//
+// Use this for FORWARD TESTING: lock the inputs, let it run on new bars, and
+// compare the live Strategy Tester stats to the indicator's in-sample numbers.
+//
+// Defaults = the user's tuned USTEC / NAS100 5m config (see README).
+// Risk: 1.5% per trade on a $50k account.
+// Costs: USTEC on IC Markets is spread-only (~0.9 pt from the order panel).
+//   Commission defaults to 0; set commission & slippage in the Strategy
+//   Tester "Properties" tab to match your broker for an accurate test.
+//
+// Execution model: half-and-half — 1/2 closes at TP1, 1/2 runs to TP2, both
+// share the stop. Opposite signal reverses (= Arrow-Way exit + new entry)
+// when "Arrow-Way exit" is on. Orders process on bar close (no repaint).
+//
+// Only signal-relevant modules are included. Visual-only layers from the
+// indicator (order blocks, overlays, regime, POI, scanner, dashboard, custom
+// backtest table) are omitted — the Strategy Tester replaces the table.
+// =============================================================================
+
+strategy("SENTINEL Strategy — Execution", "SENTINEL ST", overlay = true, initial_capital = 50000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, pyramiding = 0, process_orders_on_close = true, commission_type = strategy.commission.cash_per_order, commission_value = 0.0, slippage = 2, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+
+// =============================================================================
+// RISK & COSTS
+// =============================================================================
+grpRisk  = "Risk"
+riskPct  = input.float(1.5, "Risk per trade (%)", minval = 0.0, step = 0.1, group = grpRisk, tooltip = "Position size is computed so a full stop-out loses this % of the risk base.")
+compound = input.bool(false, "Compound (use live equity)", group = grpRisk, tooltip = "Off = risk % of the starting capital (constant $ risk). On = risk % of current equity.")
+// NOTE: set commission & slippage in the Strategy Tester > Properties tab to
+// match your broker. USTEC/NAS100 on IC Markets is spread-only (~0.9 pt).
+
+// =============================================================================
+// SIGNAL INPUTS  (defaults locked to tuned USTEC 5m config)
+// =============================================================================
+grpBias   = "1 · HTF Bias"
+biasLen   = input.int(25, "Bias EMA length", minval = 2, group = grpBias)
+tf1       = input.timeframe("D",   "HTF 1", group = grpBias)
+tf2       = input.timeframe("240", "HTF 2", group = grpBias)
+tf3       = input.timeframe("30",  "HTF 3", group = grpBias)
+
+grpStruct = "2 · Structure"
+pivotLen  = input.int(8, "Swing pivot length", minval = 1, group = grpStruct)
+
+grpFVG    = "3 · Fair Value Gaps"
+fvgMax    = input.int(6, "Max FVGs kept per side", minval = 1, maxval = 50, group = grpFVG)
+fvgDelete = input.bool(true, "Delete FVG once fully mitigated", group = grpFVG)
+showFVG   = input.bool(true, "Draw FVG zones", group = grpFVG)
+
+grpSess   = "4 · Sessions"
+sessTZ    = input.string("America/New_York", "Session timezone", group = grpSess)
+lonSess   = input.session("0200-0500", "London kill zone", group = grpSess)
+nySess    = input.session("0830-1100", "New York kill zone", group = grpSess)
+
+grpFilt   = "5 · Confirmation"
+enableMom = input.bool(true, "Momentum (RSI) filter", group = grpFilt)
+momLen    = input.int(20, "RSI length", minval = 2, group = grpFilt)
+momThresh = input.int(50, "RSI bull/bear threshold", minval = 1, maxval = 99, group = grpFilt)
+enableVol = input.bool(true, "Volume filter", group = grpFilt)
+volLen    = input.int(21, "Volume average length", minval = 2, group = grpFilt)
+volMult   = input.float(1.0, "Volume multiple", minval = 0.1, step = 0.1, group = grpFilt)
+enableKal = input.bool(true, "Kalman trend filter", group = grpFilt)
+kQ        = input.float(0.01, "Kalman process noise", minval = 0.0001, step = 0.001, group = grpFilt)
+kR        = input.float(0.10, "Kalman measurement noise", minval = 0.001, step = 0.01, group = grpFilt)
+
+grpSig    = "6 · Signals"
+dirMode   = input.string("Both", "Trade direction", options = ["Both","Long only","Short only"], group = grpSig)
+minConf   = input.int(5, "Min confluence — long", minval = 1, maxval = 9, group = grpSig)
+minConfS  = input.int(4, "Min confluence — short", minval = 1, maxval = 9, group = grpSig)
+strongConf= input.int(5, "Min confluence (STRONG)", minval = 1, maxval = 9, group = grpSig)
+confirmClose = input.bool(true, "Lock signals at candle close (no repaint)", group = grpSig)
+
+grpTM     = "7 · Trade Management"
+slLook    = input.int(15, "Stop-loss S/R lookback (bars)", minval = 1, group = grpTM)
+atrLenTM  = input.int(14, "ATR length (stop buffer)", minval = 1, group = grpTM)
+bufMult   = input.float(0.5, "Stop buffer (ATR multiple)", minval = 0.0, step = 0.1, group = grpTM)
+rr1       = input.float(1.0, "TP1 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+rr2       = input.float(3.2, "TP2 (R multiple)", minval = 0.1, step = 0.1, group = grpTM)
+arrowExit = input.bool(true, "Arrow-Way exit (reverse on opposite signal)", group = grpTM)
+showSig   = input.bool(true, "Plot signal markers", group = grpTM)
+
+// =============================================================================
+// MODULE 1 — HTF BIAS
+// =============================================================================
+f_tfBias(_tf, _len) =>
+    [c, e] = request.security(syminfo.tickerid, _tf, [close, ta.ema(close, _len)], lookahead = barmerge.lookahead_off, gaps = barmerge.gaps_off)
+    c > e ? 1 : c < e ? -1 : 0
+
+biasNet  = f_tfBias(tf1, biasLen) + f_tfBias(tf2, biasLen) + f_tfBias(tf3, biasLen)
+biasBull = biasNet > 0
+biasBear = biasNet < 0
+
+// =============================================================================
+// MODULE 2 — STRUCTURE (trend state from swing pivots)
+// =============================================================================
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,  pivotLen, pivotLen)
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+if not na(ph)
+    lastSwingHigh := ph
+if not na(pl)
+    lastSwingLow := pl
+var int trend = 0
+if not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
+    trend := 1
+if not na(lastSwingLow) and close < lastSwingLow and close[1] >= lastSwingLow
+    trend := -1
+
+// =============================================================================
+// MODULE 3 — LIQUIDITY SWEEPS
+// =============================================================================
+sweepLowRaw  = not na(lastSwingLow)  and low  < lastSwingLow  and close > lastSwingLow
+sweepHighRaw = not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+sweepLow  = sweepLowRaw  and not sweepLowRaw[1]
+sweepHigh = sweepHighRaw and not sweepHighRaw[1]
+
+// =============================================================================
+// MODULE 4 — FAIR VALUE GAPS (tracked for the "price tapping FVG" confluence)
+// =============================================================================
+bullFVG = low > high[2]
+bearFVG = high < low[2]
+var array<box> bullBoxes = array.new<box>()
+var array<box> bearBoxes = array.new<box>()
+colBull = showFVG ? color.new(color.teal, 80)   : color.new(color.teal, 100)
+colBear = showFVG ? color.new(color.maroon, 80)  : color.new(color.maroon, 100)
+
+if barstate.isconfirmed
+    if bullFVG
+        b = box.new(bar_index - 2, low, bar_index + 3, high[2], border_color = color.new(color.teal, 60), bgcolor = colBull)
+        array.push(bullBoxes, b)
+        if array.size(bullBoxes) > fvgMax
+            box.delete(array.shift(bullBoxes))
+    if bearFVG
+        b = box.new(bar_index - 2, low[2], bar_index + 3, high, border_color = color.new(color.maroon, 60), bgcolor = colBear)
+        array.push(bearBoxes, b)
+        if array.size(bearBoxes) > fvgMax
+            box.delete(array.shift(bearBoxes))
+
+f_manageFVG(boxes, isBull) =>
+    if array.size(boxes) > 0
+        for i = array.size(boxes) - 1 to 0
+            b = array.get(boxes, i)
+            box.set_right(b, bar_index + 3)
+            consumed = isBull ? (low <= box.get_bottom(b)) : (high >= box.get_top(b))
+            if consumed
+                if fvgDelete
+                    array.remove(boxes, i)
+                    box.delete(b)
+                else
+                    box.set_bgcolor(b, color.new(color.gray, 90))
+f_manageFVG(bullBoxes, true)
+f_manageFVG(bearBoxes, false)
+
+f_priceInZone(boxes) =>
+    bool hit = false
+    if array.size(boxes) > 0
+        for i = 0 to array.size(boxes) - 1
+            b = array.get(boxes, i)
+            if low <= box.get_top(b) and high >= box.get_bottom(b)
+                hit := true
+    hit
+bullFVGtap = f_priceInZone(bullBoxes)
+bearFVGtap = f_priceInZone(bearBoxes)
+
+// =============================================================================
+// MODULE 5 — SESSIONS + CONFIRMATION FILTERS
+// =============================================================================
+f_inSess(_s) => not na(time(timeframe.period, _s, sessTZ))
+inKillZone = f_inSess(lonSess) or f_inSess(nySess)
+
+rsiVal   = ta.rsi(close, momLen)
+momBull  = rsiVal > momThresh
+momBear  = rsiVal < (100 - momThresh)
+volSpike = volume > ta.sma(volume, volLen) * volMult
+
+f_kalman(src, q, r) =>
+    var float x = na
+    var float p = 1.0
+    x1 = na(x[1]) ? src : x[1]
+    p1 = na(p[1]) ? 1.0 : p[1] + q
+    kg = p1 / (p1 + r)
+    x := x1 + kg * (src - x1)
+    p := (1 - kg) * p1
+    x
+kVal  = f_kalman(close, kQ, kR)
+kBull = kVal > kVal[1]
+kBear = kVal < kVal[1]
+
+// =============================================================================
+// MODULE 6 — CONFLUENCE & SIGNALS
+// =============================================================================
+maxConf = 5 + (enableMom ? 1 : 0) + (enableVol ? 1 : 0) + (enableKal ? 1 : 0)
+longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0)  + (sweepLow ? 1 : 0)  + (bullFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBull ? 1 : 0) + (enableVol and volSpike ? 1 : 0) + (enableKal and kBull ? 1 : 0)
+shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGtap ? 1 : 0) + (inKillZone ? 1 : 0) + (enableMom and momBear ? 1 : 0) + (enableVol and volSpike ? 1 : 0) + (enableKal and kBear ? 1 : 0)
+
+commit = not confirmClose or barstate.isconfirmed
+allowLong  = dirMode != "Short only"
+allowShort = dirMode != "Long only"
+longSignal  = allowLong  and sweepLow  and longConf  >= minConf  and commit
+shortSignal = allowShort and sweepHigh and shortConf >= minConfS and commit
+longStrong  = longSignal  and longConf  >= strongConf
+shortStrong = shortSignal and shortConf >= strongConf
+
+plotshape(showSig and longSignal,  "Buy",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.tiny)
+plotshape(showSig and shortSignal, "Sell", shape.triangledown, location.abovebar, color.new(color.red,   0), size = size.tiny)
+
+// =============================================================================
+// EXECUTION
+// =============================================================================
+atrV     = ta.atr(atrLenTM)
+lowestN  = ta.lowest(low,  slLook)
+highestN = ta.highest(high, slLook)
+riskBase = compound ? strategy.equity : strategy.initial_capital
+riskCash = riskBase * riskPct / 100.0
+
+// Enter when flat, or reverse on an opposite signal if Arrow-Way is enabled.
+canLong  = longSignal  and (strategy.position_size == 0 or (strategy.position_size < 0 and arrowExit))
+canShort = shortSignal and (strategy.position_size == 0 or (strategy.position_size > 0 and arrowExit))
+
+var float slL = na, var float t1L = na, var float t2L = na
+var float slS = na, var float t1S = na, var float t2S = na
+
+if canLong
+    rstop = lowestN - atrV * bufMult
+    r = close - rstop
+    if r > 0
+        q = riskCash / (r * syminfo.pointvalue)
+        slL := rstop
+        t1L := close + r * rr1
+        t2L := close + r * rr2
+        strategy.entry("Long", strategy.long, qty = q)
+
+if canShort
+    rstop = highestN + atrV * bufMult
+    r = rstop - close
+    if r > 0
+        q = riskCash / (r * syminfo.pointvalue)
+        slS := rstop
+        t1S := close - r * rr1
+        t2S := close - r * rr2
+        strategy.entry("Short", strategy.short, qty = q)
+
+// Half-and-half exits with a shared stop (re-issued each bar while in a trade).
+if strategy.position_size > 0
+    strategy.exit("L-TP1", "Long", qty_percent = 50,  limit = t1L, stop = slL)
+    strategy.exit("L-TP2", "Long", qty_percent = 100, limit = t2L, stop = slL)
+if strategy.position_size < 0
+    strategy.exit("S-TP1", "Short", qty_percent = 50,  limit = t1S, stop = slS)
+    strategy.exit("S-TP2", "Short", qty_percent = 100, limit = t2S, stop = slS)
+
+// =============================================================================
+// ALERTS (for paper/live forward testing)
+// =============================================================================
+if longSignal
+    alert("SENTINEL " + (longStrong ? "STRONG BUY" : "BUY") + " | " + syminfo.ticker + " | conf " + str.tostring(longConf) + "/" + str.tostring(maxConf), alert.freq_once_per_bar)
+if shortSignal
+    alert("SENTINEL " + (shortStrong ? "STRONG SELL" : "SELL") + " | " + syminfo.ticker + " | conf " + str.tostring(shortConf) + "/" + str.tostring(maxConf), alert.freq_once_per_bar)
+// =============================================================================
+// END
+// =============================================================================
