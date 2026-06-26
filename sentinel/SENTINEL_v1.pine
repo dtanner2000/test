@@ -1,0 +1,296 @@
+//@version=6
+// =============================================================================
+// PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
+// Version 1.0  —  FOUNDATION
+// -----------------------------------------------------------------------------
+// A modular SMC / institutional-style trading framework for TradingView.
+//
+// Modules in this (Foundation) release:
+//   1. Higher-Timeframe Bias engine        (Daily / 4H / 2H, EMA-trend based)
+//   2. Fair Value Gap (FVG) engine          (detection + mitigation lifecycle)
+//   3. Liquidity engine                     (sweeps / stop-hunts of swings)
+//   4. Market-structure engine              (BOS / CHOCH from swing pivots)
+//   5. Session intelligence                 (Asian / London / NY kill zones)
+//                                           (PDH/PDL + PWH/PWL liquidity levels)
+//   6. Confluence scoring -> smart alerts   (+ compact on-chart dashboard)
+//
+// Roadmap (NOT in this file yet): order-block engine, confidence grading,
+// dynamic trade manager (entry/stop/TP1-3/RR), full backtester, Kalman trend,
+// market-regime classifier, multi-symbol scanner. See README.md.
+// =============================================================================
+
+indicator("Project SENTINEL — Foundation v1", "SENTINEL v1", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// --- Higher-Timeframe Bias -----------------------------------------------------
+grpBias   = "1 · Higher-Timeframe Bias"
+biasLen   = input.int(50,  "Bias EMA length",            minval = 2,  group = grpBias, tooltip = "Each HTF is bullish when its close is above this EMA, bearish when below.")
+tf1       = input.timeframe("D",   "HTF 1",              group = grpBias)
+tf2       = input.timeframe("240", "HTF 2",              group = grpBias)
+tf3       = input.timeframe("120", "HTF 3",              group = grpBias)
+showBiasBG= input.bool(false, "Tint background with net bias", group = grpBias)
+
+// --- Market Structure ----------------------------------------------------------
+grpStruct = "2 · Market Structure"
+pivotLen  = input.int(8, "Swing pivot length", minval = 1, group = grpStruct, tooltip = "Bars on each side required to confirm a swing high/low. Larger = fewer, stronger swings.")
+showBOS   = input.bool(true,  "Show BOS / CHOCH labels", group = grpStruct)
+
+// --- Fair Value Gaps -----------------------------------------------------------
+grpFVG    = "3 · Fair Value Gaps"
+showFVG   = input.bool(true, "Show FVGs",                group = grpFVG)
+fvgMax    = input.int(6, "Max FVGs kept per side", minval = 1, maxval = 50, group = grpFVG)
+fvgDelete = input.bool(true, "Delete FVG once fully mitigated", group = grpFVG)
+colBullFVG= input.color(color.new(color.teal,   80), "Bullish FVG", group = grpFVG, inline = "fvgcol")
+colBearFVG= input.color(color.new(color.maroon, 80), "Bearish FVG", group = grpFVG, inline = "fvgcol")
+
+// --- Liquidity -----------------------------------------------------------------
+grpLiq    = "4 · Liquidity"
+showSweep = input.bool(true, "Show liquidity sweeps", group = grpLiq, tooltip = "A sweep = wick takes out a prior swing then closes back inside (stop-hunt).")
+
+// --- Sessions ------------------------------------------------------------------
+grpSess   = "5 · Sessions"
+sessTZ    = input.string("America/New_York", "Session timezone", group = grpSess, tooltip = "ICT kill zones are normally defined in New York time.")
+showKZ    = input.bool(true, "Highlight kill zones", group = grpSess)
+asianSess = input.session("2000-0000", "Asian range",     group = grpSess)
+lonSess   = input.session("0200-0500", "London kill zone",group = grpSess)
+nySess    = input.session("0830-1100", "New York kill zone", group = grpSess)
+showLevels= input.bool(true, "Show PDH/PDL & PWH/PWL", group = grpSess)
+
+// --- Confluence / Alerts -------------------------------------------------------
+grpConf   = "6 · Confluence & Alerts"
+minConf   = input.int(3, "Min confluence for a signal", minval = 1, maxval = 5, group = grpConf, tooltip = "How many of the 5 confluences (HTF bias, structure, sweep, FVG, kill zone) must align to fire a signal.")
+showSig   = input.bool(true, "Plot signal triangles", group = grpConf)
+
+// --- Dashboard -----------------------------------------------------------------
+grpDash   = "7 · Dashboard"
+showDash  = input.bool(true, "Show dashboard", group = grpDash)
+dashPos   = input.string("Top Right", "Position", options = ["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group = grpDash)
+
+// =============================================================================
+// MODULE 1 — HIGHER-TIMEFRAME BIAS
+// =============================================================================
+// Each HTF returns +1 (bullish), -1 (bearish), 0 (flat) from price vs an EMA.
+
+f_tfBias(_tf, _len) =>
+    [c, e] = request.security(syminfo.tickerid, _tf, [close, ta.ema(close, _len)], lookahead = barmerge.lookahead_off, gaps = barmerge.gaps_off)
+    c > e ? 1 : c < e ? -1 : 0
+
+bias1 = f_tfBias(tf1, biasLen)
+bias2 = f_tfBias(tf2, biasLen)
+bias3 = f_tfBias(tf3, biasLen)
+biasNet = bias1 + bias2 + bias3            // range -3 .. +3
+biasBull = biasNet > 0
+biasBear = biasNet < 0
+
+// =============================================================================
+// MODULE 2 — MARKET STRUCTURE (swing pivots -> BOS / CHOCH)
+// =============================================================================
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,  pivotLen, pivotLen)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+if not na(ph)
+    lastSwingHigh := ph
+if not na(pl)
+    lastSwingLow := pl
+
+var int trend = 0                          // +1 up, -1 down
+bosUp    = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh
+bosDown  = not na(lastSwingLow)  and close < lastSwingLow  and close[1] >= lastSwingLow
+
+bosUpEvt = false
+bosDnEvt = false
+chochUp  = false
+chochDn  = false
+if bosUp
+    if trend == -1
+        chochUp := true
+    else
+        bosUpEvt := true
+    trend := 1
+if bosDown
+    if trend == 1
+        chochDn := true
+    else
+        bosDnEvt := true
+    trend := -1
+
+if showBOS
+    if bosUpEvt
+        label.new(bar_index, low,  "BOS",   color = color.new(color.green, 30), style = label.style_label_up,   textcolor = color.white, size = size.tiny)
+    if bosDnEvt
+        label.new(bar_index, high, "BOS",   color = color.new(color.red,   30), style = label.style_label_down, textcolor = color.white, size = size.tiny)
+    if chochUp
+        label.new(bar_index, low,  "CHoCH", color = color.new(color.lime,  10), style = label.style_label_up,   textcolor = color.black, size = size.tiny)
+    if chochDn
+        label.new(bar_index, high, "CHoCH", color = color.new(color.orange,10), style = label.style_label_down, textcolor = color.black, size = size.tiny)
+
+// =============================================================================
+// MODULE 3 — FAIR VALUE GAPS
+// =============================================================================
+// Bullish FVG: low[0] > high[2]   (gap between high[2] and low[0])
+// Bearish FVG: high[0] < low[2]    (gap between high[0] and low[2])
+bullFVG = low > high[2]
+bearFVG = high < low[2]
+
+var box[] bullBoxes = array.new<box>()
+var box[] bearBoxes = array.new<box>()
+
+if showFVG and barstate.isconfirmed
+    if bullFVG
+        b = box.new(bar_index - 2, low, bar_index + 3, high[2], border_color = color.new(color.teal, 40), bgcolor = colBullFVG)
+        array.push(bullBoxes, b)
+        if array.size(bullBoxes) > fvgMax
+            box.delete(array.shift(bullBoxes))
+    if bearFVG
+        b = box.new(bar_index - 2, low[2], bar_index + 3, high, border_color = color.new(color.maroon, 40), bgcolor = colBearFVG)
+        array.push(bearBoxes, b)
+        if array.size(bearBoxes) > fvgMax
+            box.delete(array.shift(bearBoxes))
+
+// Maintain boxes: extend right edge + handle mitigation lifecycle.
+f_manageFVG(boxes, isBull) =>
+    if array.size(boxes) > 0
+        for i = array.size(boxes) - 1 to 0
+            b = array.get(boxes, i)
+            box.set_right(b, bar_index + 3)
+            top = box.get_top(b)
+            bot = box.get_bottom(b)
+            consumed = isBull ? (low <= bot) : (high >= top)
+            if consumed
+                if fvgDelete
+                    box.delete(b)
+                    array.remove(boxes, i)
+                else
+                    box.set_bgcolor(b, color.new(color.gray, 88))
+                    box.set_border_color(b, color.new(color.gray, 70))
+
+if showFVG
+    f_manageFVG(bullBoxes, true)
+    f_manageFVG(bearBoxes, false)
+
+// "Fresh bullish FVG present" flag for confluence (any live bull box this bar)
+bullFVGlive = array.size(bullBoxes) > 0
+bearFVGlive = array.size(bearBoxes) > 0
+
+// =============================================================================
+// MODULE 4 — LIQUIDITY SWEEPS / STOP-HUNTS
+// =============================================================================
+// Sweep of lows  (bullish): wick takes out prior swing low, closes back above.
+// Sweep of highs (bearish): wick takes out prior swing high, closes back below.
+sweepLow  = showSweep and not na(lastSwingLow)  and low  < lastSwingLow  and close > lastSwingLow
+sweepHigh = showSweep and not na(lastSwingHigh) and high > lastSwingHigh and close < lastSwingHigh
+
+if sweepLow
+    label.new(bar_index, low,  "✦ swept", yloc = yloc.belowbar, color = color.new(color.aqua, 20), style = label.style_label_up,   textcolor = color.black, size = size.tiny)
+if sweepHigh
+    label.new(bar_index, high, "✦ swept", yloc = yloc.abovebar, color = color.new(color.fuchsia, 20), style = label.style_label_down, textcolor = color.white, size = size.tiny)
+
+// =============================================================================
+// MODULE 5 — SESSION INTELLIGENCE + KEY LEVELS
+// =============================================================================
+f_inSess(_sess) => not na(time(timeframe.period, _sess, sessTZ))
+
+inAsian  = f_inSess(asianSess)
+inLondon = f_inSess(lonSess)
+inNY     = f_inSess(nySess)
+inKillZone = inLondon or inNY
+
+// NOTE: bgcolor() must live in global scope, so conditions are inlined.
+bgcolor(showKZ and inLondon ? color.new(color.blue,   92) : na, title = "London KZ")
+bgcolor(showKZ and inNY     ? color.new(color.orange, 92) : na, title = "New York KZ")
+bgcolor(showKZ and inAsian  ? color.new(color.gray,   94) : na, title = "Asian range")
+bgcolor(showBiasBG and biasBull ? color.new(color.green, 95) : showBiasBG and biasBear ? color.new(color.red, 95) : na, title = "Net HTF bias")
+
+// Previous-day / previous-week liquidity (lookahead_on with [1] = safe, no repaint)
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+plot(showLevels ? pdh : na, "PDH", color = color.new(color.red,   0), style = plot.style_linebr, linewidth = 1)
+plot(showLevels ? pdl : na, "PDL", color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 1)
+plot(showLevels ? pwh : na, "PWH", color = color.new(color.red,   40), style = plot.style_linebr, linewidth = 2)
+plot(showLevels ? pwl : na, "PWL", color = color.new(color.green, 40), style = plot.style_linebr, linewidth = 2)
+
+// =============================================================================
+// MODULE 6 — CONFLUENCE SCORING, SIGNALS & ALERTS
+// =============================================================================
+// 5 confluences each for long and short. A signal needs >= minConf AND a sweep
+// trigger this bar (price has come to liquidity and reacted).
+
+longConf  = (biasBull ? 1 : 0) + (trend == 1 ? 1 : 0) + (sweepLow ? 1 : 0)  + (bullFVGlive ? 1 : 0) + (inKillZone ? 1 : 0)
+shortConf = (biasBear ? 1 : 0) + (trend == -1 ? 1 : 0) + (sweepHigh ? 1 : 0) + (bearFVGlive ? 1 : 0) + (inKillZone ? 1 : 0)
+
+longSignal  = sweepLow  and longConf  >= minConf
+shortSignal = sweepHigh and shortConf >= minConf
+
+plotshape(showSig and longSignal,  title = "Long signal",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small, text = "L")
+plotshape(showSig and shortSignal, title = "Short signal", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.small, text = "S")
+
+// Rich runtime alerts (dynamic message)
+if longSignal
+    alert("SENTINEL LONG  |  " + syminfo.ticker + "  |  confluence " + str.tostring(longConf) + "/5  |  price " + str.tostring(close), alert.freq_once_per_bar)
+if shortSignal
+    alert("SENTINEL SHORT |  " + syminfo.ticker + "  |  confluence " + str.tostring(shortConf) + "/5  |  price " + str.tostring(close), alert.freq_once_per_bar)
+
+// Template alertcondition()s (for users who prefer the alert dialog dropdown)
+alertcondition(longSignal,  "SENTINEL Long",  "SENTINEL long setup confirmed")
+alertcondition(shortSignal, "SENTINEL Short", "SENTINEL short setup confirmed")
+alertcondition(sweepLow or sweepHigh, "SENTINEL Liquidity Sweep", "Liquidity sweep detected")
+
+// =============================================================================
+// DASHBOARD
+// =============================================================================
+f_dashPos() =>
+    switch dashPos
+        "Top Right"     => position.top_right
+        "Top Left"      => position.top_left
+        "Bottom Right"  => position.bottom_right
+        "Bottom Left"   => position.bottom_left
+        "Middle Right"  => position.middle_right
+        => position.top_right
+
+f_biasTxt(v) => v > 0 ? "▲ Bull" : v < 0 ? "▼ Bear" : "— Flat"
+f_biasCol(v) => v > 0 ? color.new(color.green, 0) : v < 0 ? color.new(color.red, 0) : color.new(color.gray, 0)
+
+sessTxt = inLondon ? "London KZ" : inNY ? "New York KZ" : inAsian ? "Asian" : "Off-session"
+sessCol = inKillZone ? color.new(color.green, 0) : color.new(color.gray, 0)
+
+var table dash = na
+if showDash
+    if na(dash)
+        dash := table.new(f_dashPos(), 2, 9, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 50))
+    if barstate.islast
+        bg = color.new(#11151c, 0)
+        hd = color.new(#1f2733, 0)
+        tc = color.new(color.white, 0)
+        table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
+        table.cell(dash, 1, 0, "v1",               bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+
+        table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)
+        table.cell(dash, 0, 2, "HTF " + tf2, bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 2, f_biasTxt(bias2), bgcolor = bg, text_color = f_biasCol(bias2), text_size = size.small)
+        table.cell(dash, 0, 3, "HTF " + tf3, bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 3, f_biasTxt(bias3), bgcolor = bg, text_color = f_biasCol(bias3), text_size = size.small)
+
+        table.cell(dash, 0, 4, "Net bias", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 4, f_biasTxt(biasNet) + " (" + str.tostring(biasNet) + ")", bgcolor = bg, text_color = f_biasCol(biasNet), text_size = size.small)
+
+        table.cell(dash, 0, 5, "Structure", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 5, f_biasTxt(trend), bgcolor = bg, text_color = f_biasCol(trend), text_size = size.small)
+
+        table.cell(dash, 0, 6, "Session", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 6, sessTxt, bgcolor = bg, text_color = sessCol, text_size = size.small)
+
+        table.cell(dash, 0, 7, "Long conf", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 7, str.tostring(longConf) + "/5", bgcolor = bg, text_color = longConf >= minConf ? color.new(color.green,0) : tc, text_size = size.small)
+
+        table.cell(dash, 0, 8, "Short conf", bgcolor = bg, text_color = tc, text_size = size.small)
+        table.cell(dash, 1, 8, str.tostring(shortConf) + "/5", bgcolor = bg, text_color = shortConf >= minConf ? color.new(color.red,0) : tc, text_size = size.small)
+// =============================================================================
+// END OF FOUNDATION v1
+// =============================================================================
