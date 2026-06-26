@@ -146,6 +146,26 @@ Because a code-baked preset would freeze the overridden inputs, use TradingView'
 spread-only (~0.9 pt). Symbol info: **tick size 0.01, point value 1** → 1 pt = 100
 ticks, so the ~0.9 pt spread ≈ **45 ticks slippage per fill** (commission 0).
 
+**USTEC / NAS100 · 20m** — indicator PF 1.34 (OVERALL 201, 52.2% win). ⚠️ *Tuned on
+the indicator; not yet validated on the costed strategy tester.*
+
+| Section | Input | Value |
+|---|---|---|
+| HTF Bias | Bias EMA length | 120 |
+| | HTF 1 / 2 / 3 | 1W / 1D / 2H |
+| Structure | Swing pivot length | 10 |
+| Confirmation | RSI length / threshold | 20 / 50 |
+| | Volume average length / multiple | 22 / 1 |
+| | Kalman | on (0.01 / 0.10) |
+| Signals | Min confluence — long / short / STRONG | 4 / 5 / 5 |
+| Trade mgmt | Stop-loss S/R lookback | 10 |
+| | ATR length / stop buffer | 4 / 1.3 |
+| | TP1 / TP2 (R) | 1 / 3 |
+| Regime | ADX length / threshold | 14 / 22 |
+| Overlays | Reversal Zones / length / dev | on / 20 / 2 |
+
+(Higher TF should make the 0.9 pt spread far less punishing — confirm on the strategy tester.)
+
 ### Forward-test results (USTEC 5m, strategy, DEEP)
 
 ⚠️ **Reality check.** The on-chart indicator PF (1.41) was tuned on a short recent
