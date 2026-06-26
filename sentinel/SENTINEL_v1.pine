@@ -1,7 +1,7 @@
 //@version=6
 // =============================================================================
 // PROJECT SENTINEL  —  "Smart Execution for Institutional Liquidity"
-// Version 4.2  —  ELITE (instrument presets)
+// Version 4.3  —  ELITE (instrument presets, tidy markers)
 // -----------------------------------------------------------------------------
 // A modular SMC / institutional-style trading framework for TradingView.
 //
@@ -379,10 +379,14 @@ shortStrong = shortSignal and shortConf >= strongConf
 longNormal  = longSignal  and not longStrong
 shortNormal = shortSignal and not shortStrong
 
-plotshape(showSig and longNormal,  title = "Buy",         style = shape.triangleup,   location = location.belowbar, color = color.new(color.green,  0), size = size.small,  text = "Buy")
-plotshape(showSig and longStrong,  title = "Strong Buy",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime,   0), size = size.normal, text = "STRONG")
-plotshape(showSig and shortNormal, title = "Sell",        style = shape.triangledown, location = location.abovebar, color = color.new(color.red,    0), size = size.small,  text = "Sell")
-plotshape(showSig and shortStrong, title = "Strong Sell", style = shape.triangledown, location = location.abovebar, color = color.new(color.maroon, 0), size = size.normal, text = "STRONG")
+// Clean, SPECTRA-style markers: tiny triangles for normal signals, compact
+// BUY+/SELL+ pills for strong ones (much less chart clutter than big text).
+plotshape(showSig and longNormal,  title = "Buy",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.tiny)
+plotshape(showSig and shortNormal, title = "Sell", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.tiny)
+if showSig and longStrong
+    label.new(bar_index, low,  "BUY+",  yloc = yloc.belowbar, style = label.style_label_up,   color = color.new(color.lime, 0), textcolor = color.black, size = size.small)
+if showSig and shortStrong
+    label.new(bar_index, high, "SELL+", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red,  0), textcolor = color.white, size = size.small)
 
 // Alert routing
 allowBuy  = alertMode == "All" or alertMode == "Buy only"
@@ -811,7 +815,7 @@ if showDash
         hd = color.new(#1f2733, 0)
         tc = color.new(color.white, 0)
         table.cell(dash, 0, 0, "PROJECT SENTINEL", bgcolor = hd, text_color = color.new(color.aqua, 0), text_size = size.small)
-        table.cell(dash, 1, 0, preset == "Manual" ? "v4.2" : preset, bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
+        table.cell(dash, 1, 0, preset == "Manual" ? "v4.3" : preset, bgcolor = hd, text_color = color.new(color.gray, 0),  text_size = size.small)
 
         table.cell(dash, 0, 1, "HTF " + tf1, bgcolor = bg, text_color = tc, text_size = size.small)
         table.cell(dash, 1, 1, f_biasTxt(bias1), bgcolor = bg, text_color = f_biasCol(bias1), text_size = size.small)

@@ -63,6 +63,7 @@ points of interest → wait for price → confirm the reaction → score the set
 
 ## Changelog
 
+- **v4.3.0** — cleaner signal markers (SPECTRA-style): normal signals are now small triangles, strong signals are compact `BUY+` / `SELL+` pills (replacing the bulky "STRONG" text).
 - **v4.2.0** — instrument presets:
   - **Preset dropdown** (`★ Preset`) — `Manual` or `USTEC 5m`. Selecting a preset overrides the key engine parameters with a tuned set; the dashboard badge shows the active preset.
   - **USTEC 5m** preset values (≈PF 1.36 in testing): biasLen 25, HTF3 30m, RSI 20, volume avg 19, min-conf long 5 / short 4, TP2 3.2R, reversal-zone length 28 (all other params at default).
