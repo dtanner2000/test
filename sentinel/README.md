@@ -201,6 +201,23 @@ decision-support, not a turnkey system, until that bar is cleared.
 > Note: TradingView backtest numbers shift between sessions with the amount of
 > loaded history — compare configs with the same bars loaded.
 
+### ❌ 5m re-tune — tested & REJECTED (overfit)
+
+A later 5m re-tune (biasLen 202, HTF 2H/8H/1D, RSI 18, TP1 1.5/TP2 3.4, HTF-align
+on, Arrow-Way off) looked great on short windows but **decayed monotonically with
+sample size** — the classic overfit signature:
+
+| Window | PF | Max DD |
+|---|---|---|
+| 30d | 1.67 | 4% |
+| 90d | 1.53 | 12% |
+| 365d | 1.21 | 31% |
+| **3yr** | **1.05** | **53%** |
+
+Large-sample PF ~1.05 with a **53% drawdown** — worse than the 20m on every metric.
+**Do not use.** Lesson: judge on the longest DEEP window; recent-window PF is noise.
+**The 20m config remains the chosen setup.**
+
 ## Install
 
 1. Open **TradingView → Chart → Pine Editor**.
